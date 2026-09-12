@@ -118,5 +118,14 @@
     "name": "Nederlandse non-fictie en amusement",
     "query": "(Nederlandse OR Nederlanders OR Videoland OR NPO OR SBS6 OR RTL) (serie OR seizoen OR drama OR comedy OR thriller OR misdaad OR documentaire OR docuserie OR reality OR gameshow OR spelshow OR quiz OR partygame OR talentenjacht OR datingprogramma OR \"nieuw programma\" OR \"binnenkort te zien\" OR opnames OR première) (nieuw OR binnenkort OR aangekondigd OR opnames OR start) when:180d",
     "kind": "Google Nieuws"
+  },
+  {
+    "id": "availability",
+    "name": "Beschikbaarheid bij Nederlandse platforms",
+    "query": "(site:ziggo.nl/entertainment OR site:rtl.nl OR site:tvgids.nl OR site:filmvandaag.nl) (serie OR seizoen OR gameshow) (\"nu te streamen\" OR \"sinds\" OR \"nu te zien\" OR \"vanaf vandaag\") (Videoland OR Nederlandse OR NPO) when:30d",
+    "kind": "Google Nieuws",
+    "initial_urls": [
+      "https://www.ziggo.nl/entertainment/series/basta"
+    ]
   }
 ]

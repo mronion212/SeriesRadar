@@ -15,7 +15,8 @@ Een rustige, Nederlandse webapp voor **nieuwe Nederlandse series en nieuwe seizo
 
 | Status | Betekenis |
 | --- | --- |
-| Aangekondigd | Aankondiging of releaseplanning gevonden. |
+| Aangekondigd | Aankondiging gevonden. |
+| Release gepland | Een concrete releaseplanning gevonden; de opnamestatus is daarmee niet bewezen. |
 | In productie | Expliciet bericht over gestarte/lopende opnames of productie. |
 | Geproduceerd | Een bericht noemt afgeronde opnames/productie. Dit is geen garantie dat iedere stap van de postproductie klaar is. |
 | Beschikbaar | Expliciet bericht dat de serie beschikbaar is. |
@@ -64,7 +65,7 @@ Gebruik voor een feed de echte RSS/Atom-URL, niet de homepage. Alleen publieke H
 
 De ingebouwde bronnen staan in `sources.json`; wijzigingen via de website worden als overrides in SQLite opgeslagen en hebben voorrang. Custom bronnen staan ook in SQLite. Je hoeft voor normaal bronbeheer geen bestand te wijzigen en de container niet te herstarten. Back-ups bevatten dus zowel je broninstellingen als beoordelingen.
 
-Er zijn standaard negentien bronnen/zoekfeeds voor AVROTROS, RTL/Videoland, Talpa/SBS6, NPO/omroepen, Nederlandse producties bij streamers, producenten en vakmedia. AVROTROS en Broadcast Magazine hebben directe feeds; daarnaast zijn er gerichte Google Nieuws-zoekopdrachten, onder andere voor FilmVandaag, TVgids, TVvisie en landelijke nieuwsmedia. Directe feeds hebben de voorkeur als ze beschikbaar zijn. Google kan berichten vertraagd indexeren of missen. De app kan geen volledige dekking of voorsprong op iedereen garanderen. Besloten perslijsten en sociale media worden niet uitgelezen.
+Er zijn standaard twintig bronnen/zoekfeeds voor AVROTROS, RTL/Videoland, Talpa/SBS6, NPO/omroepen, Nederlandse producties bij streamers, producenten en vakmedia. AVROTROS en Broadcast Magazine hebben directe feeds; daarnaast zijn er gerichte Google Nieuws-zoekopdrachten, onder andere voor FilmVandaag, TVgids, TVvisie en landelijke nieuwsmedia. Directe feeds hebben de voorkeur als ze beschikbaar zijn. Google kan berichten vertraagd indexeren of missen. De app kan geen volledige dekking of voorsprong op iedereen garanderen. Besloten perslijsten en sociale media worden niet uitgelezen.
 
 ## Starten op je VPS
 
@@ -155,3 +156,5 @@ Per scan worden maximaal acht directe artikelpagina’s uitgelezen (maximaal een
 Volledige RSS-inhoud en directe pagina’s leveren meer expliciete gegevens op: synopsisvoorstellen, producenten, taal, genres, afleveringen, netwerk en releaseplanning. De oorspronkelijke bron blijft bij ieder veld staan. De taal van een nieuwsartikel bewijst niet de originele taal van een serie. Ontbrekende jaartallen worden niet gegokt. Synopsisvoorstellen zijn brontekst en moeten vóór inzending worden herschreven. Google Nieuws-links worden niet automatisch omzeild: voor zulke berichten blijven de feedgegevens beschikbaar; directe feeds en handmatig gekoppelde perspagina’s leveren de volledige tekst.
 
 Het overzicht vult ultrawide-schermen met extra kaartkolommen. Vanaf 1800 pixels gebruikt het dossier twee sectiekolommen. Mobiele breakpoints blijven behouden. Er zijn geen betaalde AI-oproepen toegevoegd.
+
+Beschikbaarheidsnieuws (zoals ‘sinds vrijdag te zien op Videoland’) wordt apart gezocht. Een bericht zonder seizoennummer mag alleen het enige eerste-seizoendossier bijwerken; bij meerdere seizoenen blijft het apart ter beoordeling. Een toekomstige formulering als ‘vanaf 4 september in zijn geheel te streamen’ betekent Release gepland, niet Beschikbaar. De uitzenddatum is ook zichtbaar op de overzichtskaart.

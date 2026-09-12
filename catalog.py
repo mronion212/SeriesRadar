@@ -3,12 +3,12 @@ import hashlib
 import re
 import unicodedata
 
-PHASES = ['Onbekend', 'Aangekondigd', 'In productie', 'Geproduceerd', 'Beschikbaar']
+PHASES = ['Onbekend', 'Aangekondigd', 'Release gepland', 'In productie', 'Geproduceerd', 'Beschikbaar']
 KINDS = ['Onbekend', 'Nieuwe serie', 'Nieuw seizoen']
 MONTHS = 'januari|februari|maart|april|mei|juni|juli|augustus|september|oktober|november|december'
 SERIES_WORD = r'(?:[a-zà-ÿ]*serie|sitcom|gameshow|spelshow|quiz|partygame|realityprogramma|datingprogramma|talentenjacht|documentaire|tv-programma|televisieprogramma)\b'
 ORDINALS = {'eerste':1,'tweede':2,'derde':3,'vierde':4,'vijfde':5,'zesde':6,'zevende':7,'achtste':8,'negende':9,'tiende':10,'elfde':11,'twaalfde':12}
-ALIASES_PHASE = {'Te beoordelen':'Onbekend','Gereleased':'Beschikbaar','Release gepland':'Aangekondigd'}
+ALIASES_PHASE = {'Te beoordelen':'Onbekend','Gereleased':'Beschikbaar'}
 
 def normalize(value):
     value = unicodedata.normalize('NFKD', value.casefold())
@@ -23,12 +23,19 @@ def headline(a):
 def phase_of(text):
     rules = [
         ('Onbekend', r'gaat niet door|geannuleerd|stopgezet|opnames?\b.{0,50}uitgesteld'),
-        ('Beschikbaar', r'vanaf vandaag (?:te zien|te streamen|beschikbaar)|nu te (?:zien|streamen)|nu beschikbaar|is (?:nu )?(?:verschenen|uitgebracht)|vandaag (?:te zien|te streamen)|in zijn geheel te streamen'),
+        ('Beschikbaar', r'vanaf vandaag (?:te zien|te streamen|beschikbaar)|(?:nu|inmiddels|al) (?:volledig )?te (?:zien|streamen)|nu beschikbaar|is (?:nu )?(?:verschenen|uitgebracht)|vandaag (?:te zien|te streamen)|sinds\b.{0,80}?(?:op|bij) (?:Videoland|Netflix|NPO|Prime Video)|in zijn geheel te streamen'),
         ('Geproduceerd', r'opnames?\b.{0,90}?(?:afgerond|achter de rug|voltooid)|laatste draaidag|productie (?:is )?(?:afgerond|voltooid)|klaar met (?:de )?opnames'),
         ('In productie', r'opnames?\b.{0,160}?(?:gestart|begonnen|van start)|start(?:en)? (?:met |de )?opnames|in productie|wordt (?:momenteel )?opgenomen'),
+        ('Release gepland', r'(?:vanaf|op)\s+(?:(?:maandag|dinsdag|woensdag|donderdag|vrijdag|zaterdag|zondag)\s+)?\d{1,2}\s+(?:'+MONTHS+r')[^\n]{0,100}?(?:te zien|te streamen|beschikbaar)|in 20\d\d te (?:zien|streamen)'),
         ('Aangekondigd', r'aangekondigd|kondigt .{0,100}?aan|in ontwikkeling|in de maak|nieuwe .{0,50}?serie\b|nieuw(?:e)? seizoen|krijgt .{0,35}?seizoen|releasedatum|startdatum|vanaf \d|binnenkort te|in 20\d\d te zien|verschijnt|komt met'),
     ]
     for phase, pattern in rules:
+        if phase=='Beschikbaar':
+            for sentence in re.split(r'(?<=[.!?])\s+|\n',text):
+                if re.search(r'\b(?:binnenkort|vanaf (?!vandaag)|nog niet|niet meer|zal|volgende maand)\b',sentence,re.I):continue
+                m=re.search(pattern,sentence,re.I)
+                if m:return phase,m.group(0)
+            continue
         m = re.search(pattern, text, re.I)
         if m:
             return phase, m.group(0)
@@ -53,7 +60,7 @@ def kind_of(text, season):
 
 def tidy_name(value):
     value = value.strip(' \"\'‘’“”.,:;!?')
-    value = re.split(r'\s+(?:binnenkort|van start|in de maak|in duistere|naar het boek|en nóg|en nog|over|met|bij|op|vanaf|in 20\d\d|seizoen|komt|krijgt|keert|toont|vertelt|overtreft|draait|duikt|speelt|laat|wordt|is|te zien|te streamen|bekend|onthuld)\b|[,!?]|\s+-\s+', value, maxsplit=1, flags=re.I)[0]
+    value = re.split(r'\s+(?:aangekondigd|gestart|afgerond|binnenkort|van start|in de maak|in duistere|naar het boek|en nóg|en nog|over|met|bij|op|vanaf|in 20\d\d|seizoen|komt|krijgt|keert|toont|vertelt|overtreft|draait|duikt|speelt|laat|wordt|is|te zien|te streamen|bekend|onthuld)\b|[,!?]|\s+-\s+', value, maxsplit=1, flags=re.I)[0]
     value = value.strip(' \"\'‘’“”.,:;!?')
     if not 2 <= len(value) <= 85 or len(value.split()) > 12:
         return ''
@@ -145,6 +152,13 @@ def catalog(rows):
         if a.get('classification_reviewed') and a.get('series_title'):
             known[normalize(a['series_title'])] = a['series_title']
     assessed = [assess(a, known) for a in rows]
+    # An unnumbered availability update can describe the sole first-season dossier.
+    # Never carry it across several seasons or override a manual classification.
+    for a in assessed:
+        if a['status']!='Beschikbaar' or a['kind']!='Onbekend' or a.get('classification_reviewed') or season_of(a.get('summary','')):continue
+        siblings=[b for b in assessed if b['name']==a['name'] and b['kind']!='Onbekend' and not b['rejection']]
+        if siblings and all(b['kind']=='Nieuwe serie' for b in siblings):
+            a['kind']='Nieuwe serie';a['season']=1
     # Domestic context established in one article also applies to the same exact title.
     domestic = {normalize(a['name']) for a in assessed if a['name'] and not a['rejection']}
     for a in assessed:

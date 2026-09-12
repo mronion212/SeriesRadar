@@ -31,7 +31,9 @@ jobs:
           token = base64.b64encode(b'admin:ci-only-password').decode()
           request = urllib.request.Request('http://127.0.0.1:8080/api/dashboard', headers={'Authorization': 'Basic ' + token})
           data = json.load(urllib.request.urlopen(request, timeout=10))
-          assert 'series' in data and len(data['sources']) == 9
+          with open('sources.json', encoding='utf-8') as source_file:
+              expected_sources = {s['id'] for s in json.load(source_file)}
+          assert 'series' in data and {s['id'] for s in data['sources']} == expected_sources
           PY
       - if: always()
         run: docker logs radar-test || true

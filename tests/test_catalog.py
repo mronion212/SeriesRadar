@@ -42,7 +42,7 @@ class CatalogTests(unittest.TestCase):
         self.assertEqual(next(p['status'] for p in productions if p['kind']=='Nieuwe serie'),'Aangekondigd')
 
     def test_release_date_does_not_imply_produced_or_available(self):
-        self.assertEqual(catalog.phase_of('Nieuwe Nederlandse serie vanaf 12 december te zien')[0],'Aangekondigd')
+        self.assertEqual(catalog.phase_of('Nieuwe Nederlandse serie vanaf 12 december te zien')[0],'Release gepland')
         self.assertEqual(catalog.phase_of('Opnames voor serie Teststad afgerond')[0],'Geproduceerd')
         self.assertEqual(catalog.phase_of('Nieuwe serie gaat niet door')[0],'Onbekend')
 

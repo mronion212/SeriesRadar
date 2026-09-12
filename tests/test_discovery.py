@@ -14,7 +14,7 @@ class DiscoveryTests(unittest.TestCase):
         self.assertTrue(app.relevant(a,'broadcast-direct'))
         groups=catalog.catalog([a])['series']
         self.assertEqual(groups[0]['name'],'Hitster')
-        self.assertEqual(groups[0]['productions'][0]['status'],'Aangekondigd')
+        self.assertEqual(groups[0]['productions'][0]['status'],'Release gepland')
         f=dossier.extract(a['title']+'\n'+a['summary'],'Hitster',a['url'])
         self.assertEqual(f['release_date']['value'],'24 oktober')
         self.assertEqual(f['networks']['value'],'RTL 4')
@@ -43,3 +43,18 @@ class DiscoveryTests(unittest.TestCase):
         for sid in ('filmvandaag','broadcastmagazine','tvgids'):
             self.assertIn('partygame',next(s for s in sources if s['id']==sid)['query'])
         self.assertFalse(app.relevant({'title':'Nieuwe podcastserie over voetbal','summary':''},'broadcast-direct'))
+
+    def test_availability_updates_first_season_but_never_another_season(self):
+        rows=[article('1','Nieuwe Videoland-serie BASTA aangekondigd'),
+              article('2','De serie BASTA',summary='BASTA is sinds vrijdag 4 september te zien op Videoland.')]
+        group=catalog.catalog(rows)['series'][0]
+        self.assertEqual(group['productions'][0]['status'],'Beschikbaar')
+        rows.append(article('3','Videoland-serie BASTA krijgt tweede seizoen'))
+        group=catalog.catalog(rows)['series'][0]
+        self.assertEqual(next(p for p in group['productions'] if p['season']==2)['status'],'Aangekondigd')
+        self.assertEqual(next(p for p in group['productions'] if p['kind']=='Nieuwe serie')['status'],'Aangekondigd')
+
+    def test_future_release_is_not_streaming_or_completed_filming(self):
+        self.assertEqual(catalog.phase_of('BASTA is vanaf vrijdag 4 september in zijn geheel te streamen bij Videoland.')[0],'Release gepland')
+        self.assertEqual(catalog.phase_of('BASTA is nu te streamen bij Videoland.')[0],'Beschikbaar')
+        self.assertEqual(catalog.phase_of('BASTA is nog niet nu te streamen bij Videoland.')[0],'Onbekend')
