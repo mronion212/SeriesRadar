@@ -4,7 +4,7 @@ Een rustige, Nederlandse webapp voor **nieuwe Nederlandse series en nieuwe seizo
 
 ## Gebruik
 
-- **Series** opent standaard op **Nieuwe serie**. Kies **Nieuw seizoen** of **Alle producties**, filter op status en sorteer op laatste nieuws of titel.
+- **Series** opent standaard op **Alle producties**. Kies **Nieuw seizoen** of **Alle producties**, filter op status en sorteer op laatste nieuws of titel.
 - Klik op een serietitel voor het dossier: producties/seizoenen met hun eigen status, de onderbouwing en alle gekoppelde nieuwsartikelen, op publicatiedatum gesorteerd.
 - **Te beoordelen** bevat berichten waarvoor titel, herkomst of nieuwe productie onvoldoende duidelijk is. Met **Beoordelen / koppelen** kies je de serietitel, het type en eventueel het seizoennummer.
 - Gebruik dezelfde serietitel om artikelen te bundelen. Een correctie verplaatst alleen dat artikel. Hoofdletters, leestekens en accenten worden bij het groeperen genegeerd. Verschillende series met dezelfde naam kun je onderscheiden met bijvoorbeeld een jaartal in de titel.
@@ -158,3 +158,11 @@ Volledige RSS-inhoud en directe pagina’s leveren meer expliciete gegevens op: 
 Het overzicht vult ultrawide-schermen met extra kaartkolommen. Vanaf 1800 pixels gebruikt het dossier twee sectiekolommen. Mobiele breakpoints blijven behouden. Er zijn geen betaalde AI-oproepen toegevoegd.
 
 Beschikbaarheidsnieuws (zoals ‘sinds vrijdag te zien op Videoland’) wordt apart gezocht. Een bericht zonder seizoennummer mag alleen het enige eerste-seizoendossier bijwerken; bij meerdere seizoenen blijft het apart ter beoordeling. Een toekomstige formulering als ‘vanaf 4 september in zijn geheel te streamen’ betekent Release gepland, niet Beschikbaar. De uitzenddatum is ook zichtbaar op de overzichtskaart.
+
+## Reality en programma’s zonder bevestigd seizoen
+
+De herkenning gebruikt ook de paginabeschrijving en zinnen uit de artikeltekst die de betreffende titel noemen. Schrijfwijzen zoals reality programma, reality-programma, spelprogramma, survivalprogramma en realityshow worden gezamenlijk herkend. Een afkorting vóór de uitgeschreven titel (zoals A.S.S. Anti Survival Show) wordt alleen samengevoegd als de initialen daadwerkelijk overeenkomen.
+
+Een benoemd Nederlands programma met bevestigde beschikbaarheid of concrete releaseplanning verschijnt ook zonder bewezen seizoennummer in het overzicht. Het blijft dan ‘Seizoen niet vastgesteld’; er wordt geen eerste of nieuw seizoen verzonnen. Daarom opent het overzicht standaard met Alle producties. Seizoennummers in URL’s zijn geen classificatiebewijs.
+
+De aangeleverde links voor Wolven, Anti Survival Show en Undercover Lover worden rechtstreeks geprobeerd tijdens de scan. Een geblokkeerde of niet uitleesbare pagina blokkeert andere bronartikelen niet; fouten zijn zichtbaar bij Bronnen en worden maximaal dagelijks opnieuw geprobeerd. Algemene zoekopdrachten voor reality, Net5, Prime Video, programmagidsen en Nederlandstalige producties zijn eveneens uitgebreid. Browserafhankelijke pagina’s, zoals sommige NPO/Streamz-pagina’s en privacygates, kunnen onleesbaar blijven; beschikbare alternatieve bronnen worden wel verwerkt.

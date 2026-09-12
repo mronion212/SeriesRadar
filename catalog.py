@@ -6,11 +6,16 @@ import unicodedata
 PHASES = ['Onbekend', 'Aangekondigd', 'Release gepland', 'In productie', 'Geproduceerd', 'Beschikbaar']
 KINDS = ['Onbekend', 'Nieuwe serie', 'Nieuw seizoen']
 MONTHS = 'januari|februari|maart|april|mei|juni|juli|augustus|september|oktober|november|december'
-SERIES_WORD = r'(?:[a-zà-ÿ]*serie|sitcom|gameshow|spelshow|quiz|partygame|realityprogramma|datingprogramma|talentenjacht|documentaire|tv-programma|televisieprogramma)\b'
+SERIES_WORD = r'(?:[a-zà-ÿ]*serie|sitcom|gameshow|spelshow|quiz|partygame|[a-zà-ÿ-]*programma|reality[- ]?(?:programma|show|hit|serie)|dating[- ]?experiment|survivalshow|talentenjacht|documentaire)\b'
 ORDINALS = {'eerste':1,'tweede':2,'derde':3,'vierde':4,'vijfde':5,'zesde':6,'zevende':7,'achtste':8,'negende':9,'tiende':10,'elfde':11,'twaalfde':12}
 ALIASES_PHASE = {'Te beoordelen':'Onbekend','Gereleased':'Beschikbaar'}
 
 def normalize(value):
+    # A.S.S. – Anti Survival Show and Anti Survival Show denote the same title.
+    # Only discard initials when the remaining words spell out those initials.
+    prefix=re.match(r'^((?:[A-Z]\.\s*){2,})\s*[–—-]?\s*(.+)$',value)
+    if prefix and ''.join(re.findall(r'[A-Z]',prefix.group(1))).casefold()==''.join(w[0] for w in prefix.group(2).split()).casefold():
+        value=prefix.group(2)
     value = unicodedata.normalize('NFKD', value.casefold())
     return re.sub(r'[^a-z0-9]+', ' ', ''.join(c for c in value if not unicodedata.combining(c))).strip()
 
@@ -23,7 +28,7 @@ def headline(a):
 def phase_of(text):
     rules = [
         ('Onbekend', r'gaat niet door|geannuleerd|stopgezet|opnames?\b.{0,50}uitgesteld'),
-        ('Beschikbaar', r'vanaf vandaag (?:te zien|te streamen|beschikbaar)|(?:nu|inmiddels|al) (?:volledig )?te (?:zien|streamen)|nu beschikbaar|is (?:nu )?(?:verschenen|uitgebracht)|vandaag (?:te zien|te streamen)|sinds\b.{0,80}?(?:op|bij) (?:Videoland|Netflix|NPO|Prime Video)|in zijn geheel te streamen'),
+        ('Beschikbaar', r'vanaf vandaag (?:te zien|te streamen|beschikbaar)|(?:nu|inmiddels|al) (?:volledig )?te (?:zien|streamen)|nu beschikbaar|is (?:nu )?(?:verschenen|uitgebracht)|vandaag (?:te zien|te streamen)|sinds\b.{0,100}?(?:op|bij) (?:Videoland|Netflix|NPO|Prime Video)|in zijn geheel te streamen|is te (?:zien|streamen) (?:op|bij|via) (?:\(o\.a\.\) )?(?:Prime Video|Videoland|Netflix|NPO|Net5|SBS6|NLZIET|Streamz)|kijk .{0,80} terug (?:op|bij|via) NLZIET'),
         ('Geproduceerd', r'opnames?\b.{0,90}?(?:afgerond|achter de rug|voltooid)|laatste draaidag|productie (?:is )?(?:afgerond|voltooid)|klaar met (?:de )?opnames'),
         ('In productie', r'opnames?\b.{0,160}?(?:gestart|begonnen|van start)|start(?:en)? (?:met |de )?opnames|in productie|wordt (?:momenteel )?opgenomen'),
         ('Release gepland', r'(?:vanaf|op)\s+(?:(?:maandag|dinsdag|woensdag|donderdag|vrijdag|zaterdag|zondag)\s+)?\d{1,2}\s+(?:'+MONTHS+r')[^\n]{0,100}?(?:te zien|te streamen|beschikbaar)|in 20\d\d te (?:zien|streamen)'),
@@ -52,7 +57,7 @@ def kind_of(text, season):
         return 'Nieuw seizoen'
     if re.search(r'\bnieuw(?:e)? seizoen|vervolgseizoen|verlengd|krijgt .{0,25}seizoen', text, re.I):
         return 'Nieuw seizoen' if season != 1 else 'Nieuwe serie'
-    if re.search(r'\bnieuwe?\b.{0,55}' + SERIES_WORD, text, re.I) or season == 1:
+    if re.search(r'\b(?:gloed)?nieuwe?\b.{0,55}' + SERIES_WORD, text, re.I) or season == 1:
         return 'Nieuwe serie'
     if re.search(SERIES_WORD, text, re.I) and re.search(r'binnenkort te zien|komt naar televisie|maakt .{0,20}debuut', text, re.I):
         return 'Nieuwe serie'
@@ -60,6 +65,7 @@ def kind_of(text, season):
 
 def tidy_name(value):
     value = value.strip(' \"\'‘’“”.,:;!?')
+    value = re.sub(r'^(?:de|het)\s+(?=[A-ZÀ-Ý])','',value)
     value = re.split(r'\s+(?:aangekondigd|gestart|afgerond|binnenkort|van start|in de maak|in duistere|naar het boek|en nóg|en nog|over|met|bij|op|vanaf|in 20\d\d|seizoen|komt|krijgt|keert|toont|vertelt|overtreft|draait|duikt|speelt|laat|wordt|is|te zien|te streamen|bekend|onthuld)\b|[,!?]|\s+-\s+', value, maxsplit=1, flags=re.I)[0]
     value = value.strip(' \"\'‘’“”.,:;!?')
     if not 2 <= len(value) <= 85 or len(value.split()) > 12:
@@ -72,7 +78,7 @@ def extract_name(a):
     """Require a title-shaped phrase immediately after a series noun."""
     text = headline(a)
     patterns = [
-        r'\b' + SERIES_WORD + r'\s+[‘’\'“\"]([^‘’\'“\"]{2,85})[‘’\'“\"]',
+        r'\b' + SERIES_WORD + r'\s*:?\s+[‘’\'“\"]([^‘’\'“\"]{2,85})[‘’\'“\"]',
         r'\b' + SERIES_WORD + r'\s+([^:]+)$',
         r'^([^:]{2,85}):\s*(?:een |de |nieuwe |indringende ).*' + SERIES_WORD,
         r'\bnieuwe?\s+([A-ZÀ-Ý][\wÀ-ÿ]*(?:\s+(?:[A-ZÀ-Ý][\wÀ-ÿ]*|de|het|van|en)){0,6})-serie\b',
@@ -87,6 +93,11 @@ def extract_name(a):
             # A quoted adjective or a creator's other series is not a title.
             if candidate and not re.search(r'makers|producent|regisseur', text[m.end():m.end()+15], re.I):
                 return candidate
+    # Programme pages often have only the title as their h1. Require that the
+    # article itself explicitly calls this exact heading a programme or series.
+    candidate=tidy_name(text)
+    if candidate and normalize(candidate)==normalize(text):
+        if re.search(SERIES_WORD+r'\s+[‘’\'“\"]?'+re.escape(candidate)+r'(?!\w)',a.get('summary',''),re.I):return candidate
     return ''
 
 def noise_reason(a):
@@ -98,7 +109,7 @@ def noise_reason(a):
 def assess(a, known):
     title = headline(a)
     # Search snippets frequently just repeat the headline. Limit context to stored fragment.
-    text = title + ' ' + a.get('summary','')
+    text = title + '\n' + a.get('summary','')
     season = season_of(title)
     kind = kind_of(title, season)
     phase, evidence = phase_of(text)
@@ -114,10 +125,18 @@ def assess(a, known):
             name = n
     if len(matches) > 1:
         name = ''
+    if name and kind=='Onbekend' and not re.search(r'makers|team achter',title,re.I):
+        # Use only a sentence naming this title, never a sidebar's other show.
+        for sentence in re.split(r'(?<=[!?])\s+|(?<=[.])\s+(?=[A-ZÀ-Ý])|\n',a.get('summary','')):
+            if normalize(name) not in normalize(sentence):continue
+            candidate_season=season_of(sentence)
+            candidate_kind=kind_of(sentence,candidate_season)
+            if candidate_kind!='Onbekend':
+                kind=candidate_kind;season=candidate_season;break
     rejected = noise_reason(a)
     if re.search(r'\b(?:Britse|Amerikaanse|Duitse|Deense|Zweedse|Spaanse|buitenlandse)\b.{0,30}serie', title, re.I):
         rejected = 'Buitenlandse serie; geen Nederlandse productie vastgesteld'
-    nl = bool(re.search(r'\b(?:Nederlandse?|Nederlanders|Nederlandstalige|Videoland|AVROTROS|NPO|Talpa|SBS6|BNNVARA|KRO.NCRV|PowNed|VPRO|EO)\b', text, re.I))
+    nl = bool(re.search(r'\b(?:Nederland(?:s|se|ers)?|Nederlandstalige|Videoland|AVROTROS|NPO|Talpa|SBS6|Net5|BNNVARA|KRO.NCRV|PowNed|VPRO|EO)\b', text, re.I))
     nl = nl or a['source'] in ('avrotros-direct','avrotros','npo')
     if not nl and not rejected:
         rejected = 'Nederlandse productie nog niet vastgesteld'
@@ -166,7 +185,7 @@ def catalog(rows):
             a['rejection']=''
     groups, inbox, ignored = {}, [], []
     # A series only enters the main catalog with a specific new-series/season signal.
-    eligible_names = {normalize(a['name']) for a in assessed if a['name'] and a['kind']!='Onbekend' and not a['rejection'] and a['is_update']}
+    eligible_names = {normalize(a['name']) for a in assessed if a['name'] and (a['kind']!='Onbekend' or a['status'] in ('Beschikbaar','Release gepland')) and not a['rejection'] and a['is_update']}
     eligible_names.update(normalize(a['name']) for a in assessed if a.get('classification_reviewed') and a['name'] and a['kind']!='Onbekend' and not a['rejection'])
     for a in assessed:
         if a['rejection']:

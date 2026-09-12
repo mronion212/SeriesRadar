@@ -8,31 +8,38 @@
   {
     "id": "rtl",
     "name": "RTL & Videoland",
-    "query": "(site:rtl.nl OR site:videoland.com) (serie OR seizoen OR drama OR comedy OR thriller OR misdaad OR documentaire OR docuserie OR reality OR gameshow OR spelshow OR quiz OR partygame OR talentenjacht OR datingprogramma OR \"nieuw programma\" OR \"binnenkort te zien\" OR opnames OR première) when:180d",
-    "kind": "Google Nieuws"
+    "query": "(site:rtl.nl OR site:videoland.com) (serie OR seizoen OR drama OR comedy OR thriller OR misdaad OR documentaire OR docuserie OR reality OR \"reality programma\" OR realityshow OR realityhit OR survivalprogramma OR spelprogramma OR datingexperiment OR gameshow OR spelshow OR quiz OR partygame OR talentenjacht OR datingprogramma OR \"nieuw programma\" OR \"binnenkort te zien\" OR opnames OR première) when:180d",
+    "kind": "Google Nieuws",
+    "initial_urls": [
+      "https://www.rtl.nl/boulevard/artikel/5595474/nieuwe-kandidaten-ass-anti-survival-show",
+      "https://www.rtl.nl/boulevard/artikel/5624868/deze-koppels-wagen-zich-ultieme-relatietest-undercover-lover"
+    ]
   },
   {
     "id": "avrotros",
     "name": "AVROTROS",
-    "query": "site:avrotros.nl (serie OR seizoen OR drama OR comedy OR thriller OR misdaad OR documentaire OR docuserie OR reality OR gameshow OR spelshow OR quiz OR partygame OR talentenjacht OR datingprogramma OR \"nieuw programma\" OR \"binnenkort te zien\" OR opnames OR première) when:180d",
+    "query": "site:avrotros.nl (serie OR seizoen OR drama OR comedy OR thriller OR misdaad OR documentaire OR docuserie OR reality OR \"reality programma\" OR realityshow OR realityhit OR survivalprogramma OR spelprogramma OR datingexperiment OR gameshow OR spelshow OR quiz OR partygame OR talentenjacht OR datingprogramma OR \"nieuw programma\" OR \"binnenkort te zien\" OR opnames OR première) when:180d",
     "kind": "Google Nieuws"
   },
   {
     "id": "talpa",
     "name": "Talpa & SBS6",
-    "query": "(Talpa OR SBS6 OR Net5) (nieuwe serie OR dramaserie OR opnames) when:180d",
+    "query": "(Talpa OR SBS6 OR Net5 OR KIJK) (serie OR seizoen OR reality OR survivalprogramma OR spelprogramma OR datingprogramma OR kandidaten OR opnames OR trailer) when:180d",
     "kind": "Google Nieuws"
   },
   {
     "id": "npo",
     "name": "NPO & omroepen",
-    "query": "(site:npo.nl OR site:bnnvara.nl OR site:kro-ncrv.nl OR site:omroepmax.nl OR site:eo.nl) (serie OR seizoen OR drama OR comedy OR thriller OR misdaad OR documentaire OR docuserie OR reality OR gameshow OR spelshow OR quiz OR partygame OR talentenjacht OR datingprogramma OR \"nieuw programma\" OR \"binnenkort te zien\" OR opnames OR première) when:180d",
-    "kind": "Google Nieuws"
+    "query": "(site:npo.nl OR site:bnnvara.nl OR site:kro-ncrv.nl OR site:omroepmax.nl OR site:eo.nl) (serie OR seizoen OR drama OR comedy OR thriller OR misdaad OR documentaire OR docuserie OR reality OR \"reality programma\" OR realityshow OR realityhit OR survivalprogramma OR spelprogramma OR datingexperiment OR gameshow OR spelshow OR quiz OR partygame OR talentenjacht OR datingprogramma OR \"nieuw programma\" OR \"binnenkort te zien\" OR opnames OR première) when:180d",
+    "kind": "Google Nieuws",
+    "initial_urls": [
+      "https://npo.nl/start/serie/wolven/afleveringen/seizoen-22"
+    ]
   },
   {
     "id": "streamers",
     "name": "Netflix, Prime & Disney+",
-    "query": "(Netflix OR Prime Video OR Disney OR HBO) (\"Nederlandse serie\" OR \"Nederlandse dramaserie\") when:180d",
+    "query": "(Netflix OR \"Prime Video\" OR Disney OR HBO OR Streamz) (Nederlandse OR Nederlandstalige OR Benelux) (serie OR seizoen OR reality OR spelprogramma OR survivalprogramma OR datingexperiment OR deelnemers OR trailer) when:180d",
     "kind": "Google Nieuws"
   },
   {
@@ -44,37 +51,40 @@
   {
     "id": "industry",
     "name": "Vakmedia",
-    "query": "(site:adformatie.nl OR site:broadcastmagazine.nl OR site:spreekbuis.nl) (serie OR seizoen OR drama OR comedy OR thriller OR misdaad OR documentaire OR docuserie OR reality OR gameshow OR spelshow OR quiz OR partygame OR talentenjacht OR datingprogramma OR \"nieuw programma\" OR \"binnenkort te zien\" OR opnames OR première) when:180d",
+    "query": "(site:adformatie.nl OR site:broadcastmagazine.nl OR site:spreekbuis.nl) (serie OR seizoen OR drama OR comedy OR thriller OR misdaad OR documentaire OR docuserie OR reality OR \"reality programma\" OR realityshow OR realityhit OR survivalprogramma OR spelprogramma OR datingexperiment OR gameshow OR spelshow OR quiz OR partygame OR talentenjacht OR datingprogramma OR \"nieuw programma\" OR \"binnenkort te zien\" OR opnames OR première) when:180d",
     "kind": "Google Nieuws"
   },
   {
     "id": "broad",
-    "name": "Nederlandse series Â· breed",
-    "query": "(\"Nederlandse serie\" OR \"Nederlandse dramaserie\" OR \"nieuwe Videoland serie\") (aangekondigd OR opnames OR premiÃ¨re OR verschijnt OR ontwikkeling) when:180d",
+    "name": "Nederlandse series · breed",
+    "query": "(\"Nederlandse serie\" OR \"Nederlandse dramaserie\" OR \"nieuwe Videoland serie\") (aangekondigd OR opnames OR première OR verschijnt OR ontwikkeling) when:180d",
     "kind": "Google Nieuws"
   },
   {
     "id": "filmvandaag",
     "name": "FilmVandaag",
-    "query": "site:filmvandaag.nl (serie OR seizoen OR drama OR comedy OR thriller OR misdaad OR documentaire OR docuserie OR reality OR gameshow OR spelshow OR quiz OR partygame OR talentenjacht OR datingprogramma OR \"nieuw programma\" OR \"binnenkort te zien\" OR opnames OR première) when:180d",
+    "query": "site:filmvandaag.nl (serie OR seizoen OR drama OR comedy OR thriller OR misdaad OR documentaire OR docuserie OR reality OR \"reality programma\" OR realityshow OR realityhit OR survivalprogramma OR spelprogramma OR datingexperiment OR gameshow OR spelshow OR quiz OR partygame OR talentenjacht OR datingprogramma OR \"nieuw programma\" OR \"binnenkort te zien\" OR opnames OR première) when:180d",
     "kind": "Google Nieuws"
   },
   {
     "id": "broadcastmagazine",
     "name": "Broadcast Magazine",
-    "query": "site:broadcastmagazine.nl (serie OR seizoen OR drama OR comedy OR thriller OR misdaad OR documentaire OR docuserie OR reality OR gameshow OR spelshow OR quiz OR partygame OR talentenjacht OR datingprogramma OR \"nieuw programma\" OR \"binnenkort te zien\" OR opnames OR première) when:180d",
+    "query": "site:broadcastmagazine.nl (serie OR seizoen OR drama OR comedy OR thriller OR misdaad OR documentaire OR docuserie OR reality OR \"reality programma\" OR realityshow OR realityhit OR survivalprogramma OR spelprogramma OR datingexperiment OR gameshow OR spelshow OR quiz OR partygame OR talentenjacht OR datingprogramma OR \"nieuw programma\" OR \"binnenkort te zien\" OR opnames OR première) when:180d",
     "kind": "Google Nieuws"
   },
   {
     "id": "tvgids",
     "name": "TVgids.nl",
-    "query": "site:tvgids.nl (serie OR seizoen OR drama OR comedy OR thriller OR misdaad OR documentaire OR docuserie OR reality OR gameshow OR spelshow OR quiz OR partygame OR talentenjacht OR datingprogramma OR \"nieuw programma\" OR \"binnenkort te zien\" OR opnames OR première) when:180d",
-    "kind": "Google Nieuws"
+    "query": "site:tvgids.nl (serie OR seizoen OR drama OR comedy OR thriller OR misdaad OR documentaire OR docuserie OR reality OR \"reality programma\" OR realityshow OR realityhit OR survivalprogramma OR spelprogramma OR datingexperiment OR gameshow OR spelshow OR quiz OR partygame OR talentenjacht OR datingprogramma OR \"nieuw programma\" OR \"binnenkort te zien\" OR opnames OR première) when:180d",
+    "kind": "Google Nieuws",
+    "initial_urls": [
+      "https://www.tvgids.nl/binge-kijktip/4070132/undercover-lover"
+    ]
   },
   {
     "id": "tvvisie",
     "name": "TVvisie",
-    "query": "(site:tvvisie.nl OR site:tvvisie.be) (serie OR seizoen OR drama OR comedy OR thriller OR misdaad OR documentaire OR docuserie OR reality OR gameshow OR spelshow OR quiz OR partygame OR talentenjacht OR datingprogramma OR \"nieuw programma\" OR \"binnenkort te zien\" OR opnames OR première) when:180d",
+    "query": "(site:tvvisie.nl OR site:tvvisie.be) (serie OR seizoen OR drama OR comedy OR thriller OR misdaad OR documentaire OR docuserie OR reality OR \"reality programma\" OR realityshow OR realityhit OR survivalprogramma OR spelprogramma OR datingexperiment OR gameshow OR spelshow OR quiz OR partygame OR talentenjacht OR datingprogramma OR \"nieuw programma\" OR \"binnenkort te zien\" OR opnames OR première) when:180d",
     "kind": "Google Nieuws",
     "initial_urls": [
       "https://tvvisie.nl/streaming/11september2026/opnames-nieuwe-videoland-original-serie-sex-en-de-vinex-van-barry-atsma-en-noortje-herlaar-gestart_142299/"
@@ -83,20 +93,23 @@
   {
     "id": "nieuwsmedia",
     "name": "Landelijke nieuwsmedia",
-    "query": "(site:ad.nl OR site:nu.nl OR site:telegraaf.nl OR site:volkskrant.nl OR site:trouw.nl OR site:parool.nl) (serie OR seizoen OR drama OR comedy OR thriller OR misdaad OR documentaire OR docuserie OR reality OR gameshow OR spelshow OR quiz OR partygame OR talentenjacht OR datingprogramma OR \"nieuw programma\" OR \"binnenkort te zien\" OR opnames OR première) when:180d",
+    "query": "(site:ad.nl OR site:nu.nl OR site:telegraaf.nl OR site:volkskrant.nl OR site:trouw.nl OR site:parool.nl) (serie OR seizoen OR drama OR comedy OR thriller OR misdaad OR documentaire OR docuserie OR reality OR \"reality programma\" OR realityshow OR realityhit OR survivalprogramma OR spelprogramma OR datingexperiment OR gameshow OR spelshow OR quiz OR partygame OR talentenjacht OR datingprogramma OR \"nieuw programma\" OR \"binnenkort te zien\" OR opnames OR première) when:180d",
     "kind": "Google Nieuws"
   },
   {
     "id": "omroepen-extra",
     "name": "Overige omroepen",
-    "query": "(site:omroepzwart.nl OR site:omroep-human.nl OR site:vpro.nl OR site:powned.tv OR site:wnl.tv OR site:ntr.nl) (serie OR seizoen OR drama OR comedy OR thriller OR misdaad OR documentaire OR docuserie OR reality OR gameshow OR spelshow OR quiz OR partygame OR talentenjacht OR datingprogramma OR \"nieuw programma\" OR \"binnenkort te zien\" OR opnames OR première) when:180d",
+    "query": "(site:omroepzwart.nl OR site:omroep-human.nl OR site:vpro.nl OR site:powned.tv OR site:wnl.tv OR site:ntr.nl) (serie OR seizoen OR drama OR comedy OR thriller OR misdaad OR documentaire OR docuserie OR reality OR \"reality programma\" OR realityshow OR realityhit OR survivalprogramma OR spelprogramma OR datingexperiment OR gameshow OR spelshow OR quiz OR partygame OR talentenjacht OR datingprogramma OR \"nieuw programma\" OR \"binnenkort te zien\" OR opnames OR première) when:180d",
     "kind": "Google Nieuws"
   },
   {
     "id": "entertainment",
     "name": "Entertainmentmedia",
-    "query": "(site:veronicasuperguide.nl OR site:serietotaal.nl OR site:nieuws.nl OR site:mediacourant.nl) (serie OR seizoen OR drama OR comedy OR thriller OR misdaad OR documentaire OR docuserie OR reality OR gameshow OR spelshow OR quiz OR partygame OR talentenjacht OR datingprogramma OR \"nieuw programma\" OR \"binnenkort te zien\" OR opnames OR première) when:180d",
-    "kind": "Google Nieuws"
+    "query": "(site:veronicasuperguide.nl OR site:serietotaal.nl OR site:nieuws.nl OR site:mediacourant.nl) (serie OR seizoen OR drama OR comedy OR thriller OR misdaad OR documentaire OR docuserie OR reality OR \"reality programma\" OR realityshow OR realityhit OR survivalprogramma OR spelprogramma OR datingexperiment OR gameshow OR spelshow OR quiz OR partygame OR talentenjacht OR datingprogramma OR \"nieuw programma\" OR \"binnenkort te zien\" OR opnames OR première) when:180d",
+    "kind": "Google Nieuws",
+    "initial_urls": [
+      "https://www.veronicasuperguide.nl/dating-reality/wolven-wakkerdam-serie-npo-disneyplus-deelnemers~4d74bd8"
+    ]
   },
   {
     "id": "broadcast-direct",
@@ -104,7 +117,8 @@
     "url": "https://www.broadcastmagazine.nl/feed/",
     "kind": "Directe persfeed",
     "initial_urls": [
-      "https://www.broadcastmagazine.nl/in-productie/partygame-hitster-binnenkort-te-zien-bij-rtl/"
+      "https://www.broadcastmagazine.nl/in-productie/partygame-hitster-binnenkort-te-zien-bij-rtl/",
+      "https://www.broadcastmagazine.nl/televisie-audio/televisie/prime-video-toont-trailer-van-reality-programma-undercover-lover/"
     ]
   },
   {
@@ -116,16 +130,20 @@
   {
     "id": "formats",
     "name": "Nederlandse non-fictie en amusement",
-    "query": "(Nederlandse OR Nederlanders OR Videoland OR NPO OR SBS6 OR RTL) (serie OR seizoen OR drama OR comedy OR thriller OR misdaad OR documentaire OR docuserie OR reality OR gameshow OR spelshow OR quiz OR partygame OR talentenjacht OR datingprogramma OR \"nieuw programma\" OR \"binnenkort te zien\" OR opnames OR première) (nieuw OR binnenkort OR aangekondigd OR opnames OR start) when:180d",
+    "query": "(Nederlandse OR Nederlanders OR Videoland OR NPO OR SBS6 OR RTL) (serie OR seizoen OR drama OR comedy OR thriller OR misdaad OR documentaire OR docuserie OR reality OR \"reality programma\" OR realityshow OR realityhit OR survivalprogramma OR spelprogramma OR datingexperiment OR gameshow OR spelshow OR quiz OR partygame OR talentenjacht OR datingprogramma OR \"nieuw programma\" OR \"binnenkort te zien\" OR opnames OR première) (nieuw OR binnenkort OR aangekondigd OR opnames OR start) when:180d",
     "kind": "Google Nieuws"
   },
   {
     "id": "availability",
     "name": "Beschikbaarheid bij Nederlandse platforms",
-    "query": "(site:ziggo.nl/entertainment OR site:rtl.nl OR site:tvgids.nl OR site:filmvandaag.nl) (serie OR seizoen OR gameshow) (\"nu te streamen\" OR \"sinds\" OR \"nu te zien\" OR \"vanaf vandaag\") (Videoland OR Nederlandse OR NPO) when:30d",
+    "query": "(site:nlziet.nl/nl/programma OR site:tvblik.nl OR site:streamz.be OR site:ziggo.nl/entertainment OR site:rtl.nl OR site:tvgids.nl OR site:filmvandaag.nl) (serie OR seizoen OR gameshow OR programma) (\"nu te streamen\" OR \"sinds\" OR \"nu te zien\" OR \"vanaf vandaag\") (Videoland OR Nederlandse OR NPO) when:180d",
     "kind": "Google Nieuws",
     "initial_urls": [
-      "https://www.ziggo.nl/entertainment/series/basta"
+      "https://www.ziggo.nl/entertainment/series/basta",
+      "https://www.ziggo.nl/entertainment/series/wolven",
+      "https://www.nlziet.nl/nl/programma/ass-anti-survival-show/",
+      "https://www.streamz.be/streamz/anti-survival-show~71550ebf-0bd3-4078-a80d-8d0d9dfd8cd0",
+      "https://tvblik.nl/a-s-s-anti-survival-show"
     ]
   }
 ]

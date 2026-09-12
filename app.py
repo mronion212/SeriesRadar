@@ -130,7 +130,7 @@ def relevant(item, source_id):
         title = title.removesuffix(' - ' + publisher)
     summary = item.get('summary', '').replace(publisher, '') if publisher else item.get('summary', '')
     text = title + ' ' + summary
-    series = r'\b(?:[a-zà-ÿ]*series?|sitcom|drama|gameshow|spelshow|quiz|partygame|realityprogramma|datingprogramma|talentenjacht|documentaire|tv-programma|televisieprogramma)\b'
+    series = r'\b(?:'+series_catalog.SERIES_WORD+r'|series|drama)\b'
     if not re.search(series, text, re.I):
         if not (re.search(r'\bseizoen\b|binnenkort te zien|komt naar televisie', title, re.I) and re.search(r'\b(tv|televisie|videoland|netflix|npo|sbs6|rtl|opnames)\b', text, re.I)):
             return False
@@ -182,29 +182,45 @@ def validate_source(data):
 def fetch_source(source):
     url = source.get('url') or 'https://news.google.com/rss/search?' + urlencode({'q': source['query'], 'hl': 'nl', 'gl': 'NL', 'ceid': 'NL:nl'})
     request = Request(url, headers={'User-Agent': 'SeriesRadar/1.0 (personal news monitor)', 'Accept': 'application/rss+xml, application/xml, text/xml'})
-    public_url(url)
-    with build_opener(PublicRedirect()).open(request, timeout=25) as response:
-        data = response.read(3_000_001)
-    if len(data) > 3_000_000:
-        raise ValueError('Feed is groter dan 3 MB')
-    items=list(parse_feed(data))
+    warnings=[]
+    try:
+        public_url(url)
+        with build_opener(PublicRedirect()).open(request, timeout=25) as response:
+            data = response.read(3_000_001)
+        if len(data) > 3_000_000:raise ValueError('Feed is groter dan 3 MB')
+        items=list(parse_feed(data))
+    except Exception as exc:
+        if not source.get('initial_urls'):raise
+        items=[];warnings.append('Feed: '+str(exc)[:120])
     # User-supplied older articles may have aged out of a feed. Import each once.
     for link in source.get('initial_urls',[]):
         with connect() as c:
             exists=c.execute('SELECT 1 FROM articles WHERE url=?',(link,)).fetchone()
         if exists:continue
-        public_url(link)
-        with build_opener(PublicRedirect()).open(Request(link,headers={'User-Agent':'SeriesRadar/1.0'}),timeout=20) as r:
-            raw=r.read(3_000_001)
-            if len(raw)>3_000_000:raise ValueError('Pagina groter dan 3 MB')
-            parser=dossier.ArticleParser();parser.feed(decode_page(raw,r.headers.get_content_charset()))
-        title=' '.join(parser.headings) or parser.title
-        published=None
-        for schema in parser.schemas:
-            nodes=schema if isinstance(schema,list) else schema.get('@graph',[schema]) if isinstance(schema,dict) else []
-            for node in nodes:
-                if isinstance(node,dict) and node.get('datePublished'):published=node['datePublished']
-        items.append({'title':title,'summary':'\n'.join(parser.paragraphs),'url':link,'published':published,'publisher':source['name']})
+        if not due_check('initial:'+link):
+            with connect() as c:check=c.execute('SELECT error FROM enrichment_checks WHERE key=?',('initial:'+link,)).fetchone()
+            if check and check['error']:warnings.append(check['error'])
+            continue
+        try:
+            public_url(link)
+            with build_opener(PublicRedirect()).open(Request(link,headers={'User-Agent':'SeriesRadar/1.0'}),timeout=20) as r:
+                raw=r.read(3_000_001)
+                if len(raw)>3_000_000:raise ValueError('Pagina groter dan 3 MB')
+                parser=dossier.ArticleParser();parser.feed(decode_page(raw,r.headers.get_content_charset()))
+            title=parser.headings[0] if parser.headings else parser.title
+            if not title or not (parser.paragraphs or parser.descriptions):raise ValueError('Geen uitleesbare programmatekst')
+            summary=parser.text_for(title)
+            published=None
+            for schema in parser.schemas:
+                nodes=schema if isinstance(schema,list) else schema.get('@graph',[schema]) if isinstance(schema,dict) else []
+                for node in nodes:
+                    if isinstance(node,dict) and node.get('datePublished'):published=node['datePublished']
+            items.append({'title':title,'summary':summary,'url':link,'published':published,'publisher':source['name']})
+            record_check('initial:'+link)
+        except Exception as exc:
+            warning=urlparse(link).hostname+': '+str(exc)[:120]
+            record_check('initial:'+link,warning);warnings.append(warning)
+    source['_warnings']=warnings
     return items
 
 def ingest(c, source, items):
@@ -350,7 +366,7 @@ def scan():
                     with connect() as c:
                         added = ingest(c, s, items)
                         c.execute('''INSERT INTO sources VALUES (?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET
-                          name=excluded.name,last_attempt=excluded.last_attempt,last_success=excluded.last_success,error=NULL,fetched=excluded.fetched,added=excluded.added''', (s['id'], s['name'], stamp, stamp, None, len(items), added))
+                          name=excluded.name,last_attempt=excluded.last_attempt,last_success=excluded.last_success,error=excluded.error,fetched=excluded.fetched,added=excluded.added''', (s['id'], s['name'], stamp, stamp, '; '.join(s.get('_warnings',[]))[:250] or None, len(items), added))
                 except Exception as exc:
                     logging.warning('Source %s: %s', s['id'], exc)
                     with connect() as c:

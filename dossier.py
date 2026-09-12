@@ -58,7 +58,7 @@ def extract(text, name, url):
         if not value: return
         facts.setdefault(key,{'value':value,'source_url':url,'evidence':evidence[:350],'origin':'automatic'})
     patterns = {
-        'production_companies': [r'(?:geproduceerd|gemaakt) door ([^.\n]+)',r'(?:een productie van|productie(?:bedrijf)?\s*:)\s*([^\n.]+)'],
+        'production_companies': [r'(?:geproduceerd|gemaakt) door ([^.\n]+)',r'(?:een productie van|productie(?:bedrijf)?\s*:)\s*([^\n.]+)',r'(?:^|[.\n]\s*)([A-Z][\w &-]{1,70}?) is de producent van (?:de serie|het programma)'],
         'directors':[r'(?:geregisseerd door|regie (?:(?:is|ligt) )?in handen van|regie\s*:)\s*([^\n.]+)'],
         'writers':[r'(?:scenario is geschreven door|geschreven door|scenario\s*:)\s*([^\n.]+)'],
         'creators':[r'(?:ontwikkeld door|bedacht door|(?:naar |is )?een idee van)\s*([^\n.]+)'],
@@ -89,7 +89,9 @@ def extract(text, name, url):
             add(key,value,m.group(0))
             break
     network=re.findall(r'(?:bij|op)\s+(AVROTROS|BNNVARA|KRO-NCRV|NPO\s*(?:Zapp|Start|Plus|[123])|SBS6|Net5|RTL\s*[4578]|VRT|Proximus)\b',text,re.I)
-    platform=re.findall(r'(?:bij|op)\s+(Videoland|Netflix|Prime Video|Disney\+|HBO Max|SkyShowtime|NPO Start|NPO Plus)\b',text,re.I)
+    platform_name=r'(?:Videoland|Netflix|Prime Video|Disney\+|HBO Max|SkyShowtime|NPO Start|NPO Plus|NLZIET|Streamz|KIJK)'
+    platform_groups=re.findall(r'(?:bij|op|via)\s+('+platform_name+r'(?:\s+en\s+'+platform_name+r')*)(?!\w)',text,re.I)
+    platform=[v for group in platform_groups for v in re.split(r'\s+en\s+',group,flags=re.I)]
     if network:add('networks','\n'.join(dict.fromkeys(network)),'Expliciete verwijzing: bij/op '+', '.join(dict.fromkeys(network)))
     if platform:add('platforms','\n'.join(dict.fromkeys(platform)),'Expliciete verwijzing: bij/op '+', '.join(dict.fromkeys(platform)))
     m=re.search(r'(?:vanaf|op)\s+(?:(?:maandag|dinsdag|woensdag|donderdag|vrijdag|zaterdag|zondag)\s+)?(\d{1,2}\s+(?:januari|februari|maart|april|mei|juni|juli|augustus|september|oktober|november|december)(?:\s+20\d{2})?)[^\n]{0,90}?(?:te zien|te streamen|beschikbaar|première)',text,re.I)
@@ -101,10 +103,10 @@ def extract(text, name, url):
     if m:add('episodes',str(numbers[m.group(1).lower()]),m.group(0))
     m=re.search(r'(?:^|\n)Synopsis\s*:?\s+([^\n]+)',text,re.I)
     if m:add('synopsis',m.group(1)[:6000], 'Synopsis uit de bron; herschrijven voor inzending')
-    genres={'drama':r'dramaserie|drama-serie','Comedy':r'comedy|komedie|sitcom','Thriller':r'thrillerserie','Misdaad':r'misdaadserie','Documentaire':r'documentaireserie|docuserie','Reality':r'realityserie|realityprogramma','Spelshow':r'gameshow|spelshow|quiz','Animatie':r'animatieserie'}
+    genres={'drama':r'dramaserie|drama-serie','Comedy':r'comedy|komedie|sitcom','Thriller':r'thrillerserie','Misdaad':r'misdaadserie','Documentaire':r'documentaireserie|docuserie','Reality':r'reality[- ]?(?:serie|programma|show|hit)|survivalprogramma|datingexperiment','Spelshow':r'gameshow|spelshow|spelprogramma|quiz','Animatie':r'animatieserie'}
     found=[k for k,p in genres.items() if re.search(r'\b(?:'+p+r')\b',text,re.I)]
     if found:add('genres','\n'.join(found),'Expliciete genrevermelding in artikel')
-    if re.search(r'\b(?:gameshow|spelshow|quiz)\b',text,re.I):add('format','Spelshow','Spelprogramma genoemd in artikel')
+    if re.search(r'\b(?:gameshow|spelshow|spelprogramma|quiz)\b',text,re.I):add('format','Spelshow','Spelprogramma genoemd in artikel')
     return facts
 
 
@@ -136,9 +138,11 @@ def tvdb_facts(markup, name, url):
 
 class ArticleParser(HTMLParser):
     def __init__(self):
-        super().__init__();self.paragraphs=[];self.headings=[];self.title='';self.capture=None;self.buffer=[];self.skip=0;self.is_script=False;self.script=[];self.schemas=[]
+        super().__init__();self.paragraphs=[];self.headings=[];self.descriptions=[];self.title='';self.capture=None;self.buffer=[];self.skip=0;self.is_script=False;self.script=[];self.schemas=[]
     def handle_starttag(self,tag,attrs):
         attrs=dict(attrs)
+        if tag=='meta' and (attrs.get('name')=='description' or attrs.get('property')=='og:description') and attrs.get('content'):
+            self.descriptions.append(attrs['content'])
         if tag=='script':
             self.is_script=attrs.get('type')=='application/ld+json';self.script=[]
         if tag in ('script','style','nav','footer'): self.skip+=1
@@ -162,10 +166,12 @@ class ArticleParser(HTMLParser):
     def text_for(self,name):
         if normalize(name) not in normalize(' '.join(self.headings) or self.title):
             raise ValueError('De paginatitel noemt deze serie niet. Controleer of dit de juiste bron is.')
-        text='\n'.join(self.headings+self.paragraphs)
+        text='\n'.join(self.headings+list(dict.fromkeys(self.descriptions))+self.paragraphs)
         for schema in self.schemas:
             nodes=schema if isinstance(schema,list) else schema.get('@graph',[schema]) if isinstance(schema,dict) else []
             for node in nodes:
+                if isinstance(node,dict) and normalize(name) in normalize(node.get('headline','') or node.get('name','')) and isinstance(node.get('description'),str):
+                    text+='\n'+node['description']
                 if isinstance(node,dict) and isinstance(node.get('articleBody'),str) and normalize(name) in normalize(node.get('headline','')):
                     return ('\n'.join(self.headings)+'\n'+node['articleBody'])[:60000]
         text=re.split(r'\n(?:TVvisie Extra|Onze apps|Meest recente|Gerelateerde berichten|Lees ook|Vacatures|Aanbiedingen)\b',text,flags=re.I)[0]
