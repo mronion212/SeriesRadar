@@ -31,6 +31,19 @@ De app gebruikt conservatieve tekstregels op feedkoppen en korte fragmenten. Hij
 
 Dit is **geen AI die alle artikelen volledig leest**, geen volledige seriecatalogus en geen controle tegen een bestaande TVDB-database. ‘Nieuwe serie’ betekent dat het nieuws die productie als nieuw beschrijft; niet dat de titel nog ontbreekt op TVDB. Ook reality- en documentaireseries kunnen voorkomen. Reboots kunnen een bestaande titel gebruiken. Controleer automatische koppelingen voordat je informatie overneemt. Bij een ontbrekende titel, meerdere series in één bericht, een afwijkende schrijfwijze of weinig context is handmatig koppelen nodig. Een meer-serie-artikel kan handmatig aan één dossier worden gekoppeld; automatische koppeling aan meerdere dossiers wordt niet gedaan.
 
+## Dossiers voor IMDb en TVDB
+
+Het serieoverzicht gebruikt kaarten met status, platform, nieuwsaantal en de voortgang van het dossier. Klik op een serie en kies de productie of het seizoen. Het dossier heeft tabbladen voor het overzicht, cast en crew, bronnen en nieuws, en IMDb/TVDB.
+
+- Gegevens: titels, synopsis, land, taal, genres, netwerk/omroep, streamingplatform, productiebedrijf, coproductiepartners, cast en personages, regie, scenario, bedenkers, producenten, releaseplanning, afleveringen, speelduur en officiële links.
+- Expliciete gegevens uit feeds worden automatisch voorgesteld met bronvermelding. Onder **Bronnen & nieuws** kun je een directe persbericht-URL laten uitlezen. Een Google Nieuws-doorverwijzing of een website die JavaScript of een login vereist, is hiervoor niet altijd geschikt. De pagina moet de serietitel noemen.
+- Gekoppelde perspagina's worden na 24 uur opnieuw gecontroleerd, maximaal vier per scanronde. Dit staat los van de nieuwsfeeds die iedere 30 minuten worden gescand.
+- Met **Gegevens aanvullen** kun je ieder veld, de bronlink en de onderbouwing corrigeren. Handmatige waarden worden niet overschreven door nieuwe scans. Cast en andere gegevens blijven per productie/seizoen gescheiden.
+- Niet gevonden betekent **Nog onbekend**. Automatische voorstellen zijn tekstherkenning en moeten worden gecontroleerd. De voortgang telt elf basisvelden; het is geen garantie dat een inzending aan alle platformregels voldoet.
+- Onder **IMDb / TVDB** kun je het dossier kopiëren of als JSON downloaden. Dit is een invoerhulp, geen automatisch importformaat of automatische inzending bij die platforms. Schrijf een eigen synopsis en controleer de rechten op beeldmateriaal.
+
+Alle dossiergegevens en gekoppelde bronnen staan in dezelfde SQLite-database en worden dus meegenomen in de back-up.
+
 ## Nieuwsbronnen toevoegen
 
 Ga naar **Bronnen → Bron toevoegen**:

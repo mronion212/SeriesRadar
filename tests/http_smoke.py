@@ -45,6 +45,14 @@ with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ,{'ADMIN_U
             app.ingest(c,{'id':'test','name':'Test'},[{'title':"Nieuwe Nederlandse serie 'Teststad' aangekondigd",'url':'https://example.org/test','summary':'','published':None,'publisher':'Test'}])
         group=call('/api/dashboard')[1]['series'][0]
         row=group['articles'][0]
+        profile=group['dossiers'][0]
+        update={'series_id':group['id'],'scope':profile['scope'],'revision':profile['revision'],'fields':{'cast':{'value':'Anna de Vries | Noor','source_url':'https://example.org/test','evidence':'Cast credits'}}}
+        assert call('/api/dossier',update)[0]==200
+        assert call('/api/dossier',update)[0]==409
+        app.init()
+        dossier=call('/api/dashboard')[1]['series'][0]['dossiers'][0]
+        assert dossier['fields']['cast']['value']=='Anna de Vries | Noor'
+        assert dossier['fields']['cast']['origin']=='manual'
         data={'id':row['id'],'series_title':'Teststad','production_kind':'Nieuw seizoen','season_number':2,'phase':'In productie','notes':'Persisted note','tvdb':0,'excluded':0}
         assert call('/api/article',data)[0]==200
         updated=call('/api/dashboard')[1]['series'][0]

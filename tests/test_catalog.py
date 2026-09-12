@@ -2,7 +2,7 @@ import unittest
 import catalog
 
 def article(id, title, published='2026-09-01T12:00:00+00:00', **extra):
-    return {'id':id,'title':title,'summary':'','publisher':'Pers','source':'test','published':published,'discovered':'2026-09-11T12:00:00+00:00','phase':'Te beoordelen','reviewed':0,'classification_reviewed':0,'series_title':'','tvdb':0,'notes':'','excluded':0,**extra}
+    return {'id':id,'title':title,'url':'https://example.org/'+id,'summary':'','publisher':'Pers','source':'test','published':published,'discovered':'2026-09-11T12:00:00+00:00','phase':'Te beoordelen','reviewed':0,'classification_reviewed':0,'series_title':'','tvdb':0,'notes':'','excluded':0,**extra}
 
 class CatalogTests(unittest.TestCase):
     def test_same_series_groups_without_mixing_seasons(self):

@@ -22,6 +22,7 @@ from urllib.parse import urlparse, urlencode
 from urllib.request import Request, urlopen, build_opener, HTTPRedirectHandler
 import xml.etree.ElementTree as ET
 import catalog as series_catalog
+import dossier
 
 ROOT = Path(__file__).parent
 DB = Path(os.environ.get('DATA_DIR', str(ROOT / 'data'))) / 'radar.sqlite3'
@@ -60,6 +61,9 @@ def init():
           error TEXT, fetched INTEGER DEFAULT 0, added INTEGER DEFAULT 0);
         CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
         CREATE TABLE IF NOT EXISTS source_config (id TEXT PRIMARY KEY, config TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS dossier_data (series_id TEXT,scope TEXT,revision INTEGER NOT NULL,fields TEXT NOT NULL,PRIMARY KEY(series_id,scope));
+        CREATE TABLE IF NOT EXISTS article_facts (article_id TEXT PRIMARY KEY,facts TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS dossier_sources (series_id TEXT,scope TEXT,url TEXT,name TEXT,facts TEXT,checked TEXT,error TEXT,PRIMARY KEY(series_id,scope,url));
         ''')
         columns = {r['name'] for r in c.execute('PRAGMA table_info(articles)')}
         for name, definition in [('production_kind', "TEXT DEFAULT 'Onbekend'"), ('season_number','INTEGER'), ('classification_reviewed','INTEGER DEFAULT 0'), ('excluded','INTEGER DEFAULT 0')]:
@@ -190,7 +194,56 @@ def ingest(c, source, items):
           (id,title,url,summary,source,publisher,published,discovered,phase,reason)
           VALUES (?,?,?,?,?,?,?,?,?,?)''', (key, item['title'][:700], item['url'], item['summary'][:650], source['id'], item['publisher'] or source['name'], publication_date(item['published']), now(), phase, reason))
         added += result.rowcount
+        name=series_catalog.extract_name(item)
+        if name:
+            facts=dossier.extract(item['title']+'\n'+item['summary'],name,item['url'])
+            if facts:
+                c.execute('INSERT OR REPLACE INTO article_facts VALUES (?,?)',(key,json.dumps(facts)))
     return added
+
+def get_catalog():
+    with connect() as c:
+        articles=[dict(r) for r in c.execute('SELECT * FROM articles ORDER BY published DESC,discovered DESC')]
+        saved=[dict(r) for r in c.execute('SELECT * FROM dossier_data')]
+        imported=[dict(r) for r in c.execute('SELECT * FROM dossier_sources ORDER BY checked')]
+        facts={r['article_id']:json.loads(r['facts']) for r in c.execute('SELECT * FROM article_facts')}
+    result=series_catalog.catalog(articles)
+    for group in result['series']:
+        values={r['scope']:{'revision':r['revision'],'fields':json.loads(r['fields'])} for r in saved if r['series_id']==group['id']}
+        candidates={}
+        group['metadata_sources']=[]
+        for r in imported:
+            if r['series_id']!=group['id']:continue
+            candidates.setdefault(r['scope'],{}).update(json.loads(r['facts'] or '{}'))
+            group['metadata_sources'].append({k:r[k] for k in ('scope','url','checked','error')})
+        group['dossiers']=dossier.prepare(group,values,candidates,facts)
+    result['dossier_fields']=[{'key':k,'label':label,'section':section} for k,label,section in dossier.FIELDS]
+    return result
+
+def import_metadata(series_id,scope,name,url):
+    public_url(url)
+    req=Request(url,headers={'User-Agent':'SeriesRadar/1.0 (metadata from public press articles)'})
+    try:
+        with build_opener(PublicRedirect()).open(req,timeout=25) as response:
+            data=response.read(3_000_001)
+            if len(data)>3_000_000:raise ValueError('De pagina is te groot')
+            if 'html' not in response.headers.get('Content-Type',''):raise ValueError('Gebruik een HTML-nieuwsbericht')
+            encoding=response.headers.get_content_charset() or 'utf-8'
+        parser=dossier.ArticleParser();parser.feed(data.decode(encoding,errors='replace'))
+        text=parser.text_for(name)
+        # Prevent importing a different numbered season into this production.
+        detected=series_catalog.season_of(' '.join(parser.headings))
+        expected=scope.split(':')[-1]
+        if detected and expected!='?' and int(expected)!=detected:
+            raise ValueError('Deze bron noemt een ander seizoen. Kies het bijbehorende seizoen in het dossier.')
+        facts=dossier.extract(text,name,url)
+        with connect() as c:
+            c.execute('INSERT OR REPLACE INTO dossier_sources VALUES (?,?,?,?,?,?,NULL)',(series_id,scope,url,name,json.dumps(facts),now()))
+        return facts
+    except Exception as exc:
+        with connect() as c:
+            c.execute('UPDATE dossier_sources SET checked=?,error=? WHERE series_id=? AND scope=? AND url=?',(now(),str(exc)[:250],series_id,scope,url))
+        raise
 
 def scan():
     if not LOCK.acquire(blocking=False):
@@ -218,6 +271,12 @@ def scan():
         with connect() as c:
             c.execute("INSERT OR REPLACE INTO meta VALUES ('last_finished',?)", (now(),))
             c.execute("INSERT OR REPLACE INTO meta VALUES ('next_scan',?)", (str(time.time() + INTERVAL),))
+        # Revisit linked metadata sources once per day, bounded per news round.
+        with connect() as c:
+            due=[dict(r) for r in c.execute("SELECT * FROM dossier_sources WHERE checked < ? ORDER BY checked LIMIT 4",(datetime.fromtimestamp(time.time()-86400,timezone.utc).isoformat(),))]
+        for source in due:
+            try:import_metadata(source['series_id'],source['scope'],source['name'],source['url'])
+            except Exception:logging.warning('Metadata source unavailable: %s',source['url'])
     finally:
         LOCK.release()
 
@@ -266,10 +325,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == '/api/dashboard':
             with connect() as c:
-                articles = [dict(r) for r in c.execute('SELECT * FROM articles ORDER BY published DESC,discovered DESC')]
                 statuses = {r['id']: dict(r) for r in c.execute('SELECT * FROM sources')}
                 meta = dict(c.execute('SELECT key,value FROM meta').fetchall())
-            return self.respond(200, {**series_catalog.catalog(articles), 'sources': [{**statuses.get(s['id'], {}), **s} for s in sources()], 'meta': meta, 'scanning': LOCK.locked(), 'interval': INTERVAL})
+            return self.respond(200, {**get_catalog(), 'sources': [{**statuses.get(s['id'], {}), **s} for s in sources()], 'meta': meta, 'scanning': LOCK.locked(), 'interval': INTERVAL})
         files = {'/': ('index.html', 'text/html; charset=utf-8'), '/app.js': ('app.js', 'text/javascript; charset=utf-8'), '/style.css': ('style.css', 'text/css; charset=utf-8'), '/favicon.svg': ('favicon.svg', 'image/svg+xml')}
         if path in files:
             name, kind = files[path]
@@ -284,7 +342,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.respond(403, {'error': 'Ongeldig verzoek'})
         try:
             size = int(self.headers.get('Content-Length', '0'))
-            if not 0 < size <= 12000:
+            if not 0 < size <= 250000:
                 raise ValueError('Ongeldige grootte')
             data = json.loads(self.rfile.read(size))
             if not isinstance(data, dict):
@@ -292,6 +350,28 @@ class Handler(BaseHTTPRequestHandler):
             if self.path == '/api/scan':
                 WAKE.set()
                 return self.respond(202, {'ok': True})
+            if self.path in ('/api/dossier','/api/dossier/import'):
+                group=next((g for g in get_catalog()['series'] if g['id']==data.get('series_id')),None)
+                if not group: return self.respond(404,{'error':'Serie niet gevonden'})
+                profile=next((p for p in group['dossiers'] if p['scope']==data.get('scope')),None)
+                if not profile:raise ValueError('Selecteer een bestaande productie of seizoen')
+                if self.path.endswith('/import'):
+                    url=data.get('url','')
+                    if not isinstance(url,str) or len(url)>2000:raise ValueError('Ongeldige bronlink')
+                    try:
+                        facts=import_metadata(group['id'],profile['scope'],group['name'],url)
+                        return self.respond(200,{'ok':True,'found':len(facts)})
+                    except Exception as exc:return self.respond(400,{'error':str(exc)[:250]})
+                fields=dossier.validate_fields(data.get('fields'))
+                with connect() as c:
+                    c.execute('BEGIN IMMEDIATE')
+                    row=c.execute('SELECT revision,fields FROM dossier_data WHERE series_id=? AND scope=?',(group['id'],profile['scope'])).fetchone()
+                    revision=row['revision'] if row else 0
+                    if type(data.get('revision')) is not int or data['revision']!=revision:
+                        return self.respond(409,{'error':'Dit dossier is intussen gewijzigd. Sluit en open het formulier opnieuw.'})
+                    merged={**(json.loads(row['fields']) if row else {}),**fields}
+                    c.execute('INSERT OR REPLACE INTO dossier_data VALUES (?,?,?,?)',(group['id'],profile['scope'],revision+1,json.dumps(merged)))
+                return self.respond(200,{'ok':True,'revision':revision+1})
             if self.path == '/api/article':
                 if data.get('phase') not in series_catalog.PHASES or data.get('production_kind') not in series_catalog.KINDS or type(data.get('tvdb')) is not int or data['tvdb'] not in (0,1) or not isinstance(data.get('series_title'), str) or not isinstance(data.get('notes'), str) or type(data.get('excluded')) is not int or data['excluded'] not in (0,1):
                     raise ValueError('Ongeldige velden')
