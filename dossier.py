@@ -7,7 +7,7 @@ from catalog import normalize
 
 FIELDS = [
     ('original_title','Oorspronkelijke titel','Basis'),('alternative_titles','Alternatieve titels','Basis'),
-    ('format','Type / formaat','Basis'),('synopsis','Synopsis (eigen tekst)','Basis'),
+    ('format','Type / formaat','Basis'),('synopsis','Synopsis (bronvoorstel; herschrijven voor inzending)','Basis'),
     ('countries','Productieland(en)','Basis'),('languages','Originele taal/talen','Basis'),('genres','Genres','Basis'),
     ('networks','Netwerk / omroep','Uitgave'),('platforms','Streamingplatform','Uitgave'),
     ('production_companies','Productiebedrijf','Uitgave'),('distributors','Distributeur / coproductiepartners','Uitgave'),
@@ -58,29 +58,33 @@ def extract(text, name, url):
         if not value: return
         facts.setdefault(key,{'value':value,'source_url':url,'evidence':evidence[:350],'origin':'automatic'})
     patterns = {
-        'production_companies': [r'(?:geproduceerd|gemaakt) door ([^.\n]+)',r'productie(?:bedrijf)?\s*:\s*([^\n.]+)'],
-        'directors':[r'(?:geregisseerd door|regie (?:is )?in handen van|regie\s*:)\s*([^\n.]+)'],
+        'production_companies': [r'(?:geproduceerd|gemaakt) door ([^.\n]+)',r'(?:een productie van|productie(?:bedrijf)?\s*:)\s*([^\n.]+)'],
+        'directors':[r'(?:geregisseerd door|regie (?:(?:is|ligt) )?in handen van|regie\s*:)\s*([^\n.]+)'],
         'writers':[r'(?:scenario is geschreven door|geschreven door|scenario\s*:)\s*([^\n.]+)'],
-        'creators':[r'(?:ontwikkeld door|bedacht door|naar een idee van)\s*([^\n.]+)'],
+        'creators':[r'(?:ontwikkeld door|bedacht door|(?:naar |is )?een idee van)\s*([^\n.]+)'],
         'producers':[r'(?:producenten zijn|uitvoerend producent(?:en)?\s*:)\s*([^\n.]+)'],
         'distributors':[r'(?:een coproductie van|distributie door)\s*([^\n.]+)'],
-        'cast':[r'(?:hoofdrollen worden gespeeld door|rollen worden vertolkt door|cast bestaat uit|hoofdrollen voor|met in de hoofdrollen|cast\s*:)\s*([^\n.]+)',r'([A-ZÀ-Ý][^.\n]{3,230}?) spelen de hoofdrollen'],
+        'cast':[r'(?:hoofdrollen worden gespeeld door|(?:hoofd)?rollen (?:worden )?vertolkt door|cast bestaat uit|hoofdrollen voor|met in de hoofdrollen|cast\s*:)\s*([^\n.]+)',r'([A-ZÀ-Ý][^.\n]{3,230}?) spelen de hoofdrollen'],
         'episodes':[r'\b(\d{1,3}) (?:afleveringen|delen)\b'],
         'runtime':[r'(?:afleveringen van|speelduur(?: per aflevering)?(?: van|:)?)\s*(\d{1,3}\s*minuten)'],
         'countries':[r'(?:productieland(?:en)?|land van productie)\s*:\s*([^\n.]+)'],
-        'languages':[r'(?:originele taal|gesproken taal)\s*:\s*([^\n.]+)'],
+        'languages':[r'(?:originele taal|gesproken taal)\s*:\s*([^\n.]+)',r'\b(Nederlandstalig)e?\b'],
     }
     for key, patterns_for_key in patterns.items():
         for pattern in patterns_for_key:
             m=re.search(pattern,text,re.I if key!='cast' or pattern.startswith('(?:') else 0)
             if not m: continue
-            value=re.split(r',?\s+(?:bekend van|de makers van|en geregisseerd|en geschreven|in deze|waarin|naast|voor deze)\b',m.group(1),maxsplit=1,flags=re.I)[0]
+            value=re.split(r',?\s+(?:bekend van|de makers van|en geregisseerd|en geschreven|in deze|waarin|waarbij|naast|voor deze)\b',m.group(1),maxsplit=1,flags=re.I)[0]
             if key in ('cast','directors','writers','creators','producers','production_companies','distributors'):
                 value=re.sub(r'\([^)]*\)','',value)
-                value=re.split(r'\s+(?:in co-?productie met|en wordt|wordt gemaakt|voor (?:de|het))\b',value,maxsplit=1,flags=re.I)[0]
+                value=re.split(r'\s+(?:in co-?productie met|in opdracht van|en wordt|wordt gemaakt|voor (?:de|het))\b',value,maxsplit=1,flags=re.I)[0]
                 names=re.split(r',\s*|\s+en\s+',value)
                 names=[n.strip() for n in names if n.strip()]
                 if any(len(n)>90 or len(n.split())>8 for n in names): continue
+                if key=='production_companies' and len(names)>1:
+                    # Production credits can mix companies and individual producers.
+                    companies=[n for n in names if re.search(r'\b(?:Pupkin|NewBe|Fremantle|EndemolShine|Talpa|Film|Films|Productions|Media|Studios|Valley|Lemming|Millstreet)\b',n,re.I)]
+                    if companies:names=companies
                 value='\n'.join(names)
             add(key,value,m.group(0))
             break
@@ -88,11 +92,47 @@ def extract(text, name, url):
     platform=re.findall(r'(?:bij|op)\s+(Videoland|Netflix|Prime Video|Disney\+|HBO Max|SkyShowtime|NPO Start|NPO Plus)\b',text,re.I)
     if network:add('networks','\n'.join(dict.fromkeys(network)),'Expliciete verwijzing: bij/op '+', '.join(dict.fromkeys(network)))
     if platform:add('platforms','\n'.join(dict.fromkeys(platform)),'Expliciete verwijzing: bij/op '+', '.join(dict.fromkeys(platform)))
-    m=re.search(r'(?:vanaf|op)\s+(\d{1,2}\s+(?:januari|februari|maart|april|mei|juni|juli|augustus|september|oktober|november|december)(?:\s+20\d{2})?)[^.\n]{0,70}(?:te zien|te streamen|beschikbaar|première)',text,re.I)
+    m=re.search(r'(?:vanaf|op)\s+(?:(?:maandag|dinsdag|woensdag|donderdag|vrijdag|zaterdag|zondag)\s+)?(\d{1,2}\s+(?:januari|februari|maart|april|mei|juni|juli|augustus|september|oktober|november|december)(?:\s+20\d{2})?)[^\n]{0,90}?(?:te zien|te streamen|beschikbaar|première)',text,re.I)
     if m:add('release_date',m.group(1),m.group(0))
     m=re.search(r'in\s+(20\d{2})\s+te (?:streamen|zien)',text,re.I)
     if m:add('release_year',m.group(1),m.group(0))
+    numbers={'een':1,'twee':2,'drie':3,'vier':4,'vijf':5,'zes':6,'zeven':7,'acht':8,'negen':9,'tien':10,'elf':11,'twaalf':12}
+    m=re.search(r'\b('+ '|'.join(numbers)+r')(?:delige| afleveringen)\b',text,re.I)
+    if m:add('episodes',str(numbers[m.group(1).lower()]),m.group(0))
+    m=re.search(r'(?:^|\n)Synopsis\s*:?\s+([^\n]+)',text,re.I)
+    if m:add('synopsis',m.group(1)[:6000], 'Synopsis uit de bron; herschrijven voor inzending')
+    genres={'drama':r'dramaserie|drama-serie','Comedy':r'comedy|komedie|sitcom','Thriller':r'thrillerserie','Misdaad':r'misdaadserie','Documentaire':r'documentaireserie|docuserie','Reality':r'realityserie|realityprogramma','Spelshow':r'gameshow|spelshow|quiz','Animatie':r'animatieserie'}
+    found=[k for k,p in genres.items() if re.search(r'\b(?:'+p+r')\b',text,re.I)]
+    if found:add('genres','\n'.join(found),'Expliciete genrevermelding in artikel')
+    if re.search(r'\b(?:gameshow|spelshow|quiz)\b',text,re.I):add('format','Spelshow','Spelprogramma genoemd in artikel')
     return facts
+
+
+def tvdb_facts(markup, name, url):
+    """Read the public series page; never infer existence from a guessed URL."""
+    from html import unescape
+    def plain(s):return re.sub(r'\s+',' ',unescape(re.sub(r'<[^>]+>',' ',s))).strip()
+    heading=re.search(r'<h1\b[^>]*>(.*?)</h1>',markup,re.S|re.I)
+    if not heading or normalize(plain(heading.group(1)))!=normalize(name):
+        raise ValueError('TVDB-pagina heeft geen exact overeenkomende titel; controleer handmatig.')
+    fields={}
+    mapping={'TheTVDB.com Series ID':'tvdb_id','Original Language':'languages','Original Country':'countries','Genres':'genres','Network':'networks','Production Company':'production_companies'}
+    for label,body in re.findall(r'<strong[^>]*>(.*?)</strong>(.*?)</li>',markup,re.S|re.I):
+        key=mapping.get(plain(label))
+        if key:
+            values=[plain(v) for v in re.findall(r'<span[^>]*>(.*?)</span>',body,re.S)]
+            value='\n'.join(v for v in values if v)
+            if value:fields[key]={'value':value,'source_url':url,'evidence':'TVDB: '+plain(label),'origin':'automatic'}
+    if not fields.get('tvdb_id',{}).get('value','').isdigit():raise ValueError('Geen geldig TVDB-serie-ID gevonden')
+    # Same-name foreign shows must not become automatic domestic matches.
+    if normalize(fields.get('countries',{}).get('value','')) not in ('the netherlands','netherlands','nederland'):
+        raise ValueError('TVDB-titel gevonden, maar Nederlandse herkomst niet bevestigd; controleer handmatig.')
+    overview=re.search(r'<div\b[^>]*class="change_translation_text"[^>]*data-language="nld"[^>]*>(.*?)</div>',markup,re.S)
+    if overview:
+        fields['synopsis']={'value':plain(overview.group(1))[:6000],'source_url':url,'evidence':'Nederlandse TVDB-synopsis; herschrijven voor inzending','origin':'automatic'}
+    imdb=re.search(r'https://www.imdb.com/title/(tt\d+)/',markup)
+    if imdb:fields['imdb_id']={'value':imdb.group(1),'source_url':url,'evidence':'TVDB externe IMDb-link','origin':'automatic'}
+    return fields
 
 class ArticleParser(HTMLParser):
     def __init__(self):
@@ -127,7 +167,8 @@ class ArticleParser(HTMLParser):
             nodes=schema if isinstance(schema,list) else schema.get('@graph',[schema]) if isinstance(schema,dict) else []
             for node in nodes:
                 if isinstance(node,dict) and isinstance(node.get('articleBody'),str) and normalize(name) in normalize(node.get('headline','')):
-                    text+='\n'+node['articleBody']
+                    return ('\n'.join(self.headings)+'\n'+node['articleBody'])[:60000]
+        text=re.split(r'\n(?:TVvisie Extra|Onze apps|Meest recente|Gerelateerde berichten|Lees ook|Vacatures|Aanbiedingen)\b',text,flags=re.I)[0]
         return text[:60000]
 
 def prepare(group, saved, imported, article_facts=None):

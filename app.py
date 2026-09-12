@@ -64,6 +64,7 @@ def init():
         CREATE TABLE IF NOT EXISTS dossier_data (series_id TEXT,scope TEXT,revision INTEGER NOT NULL,fields TEXT NOT NULL,PRIMARY KEY(series_id,scope));
         CREATE TABLE IF NOT EXISTS article_facts (article_id TEXT PRIMARY KEY,facts TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS dossier_sources (series_id TEXT,scope TEXT,url TEXT,name TEXT,facts TEXT,checked TEXT,error TEXT,PRIMARY KEY(series_id,scope,url));
+        CREATE TABLE IF NOT EXISTS enrichment_checks (key TEXT PRIMARY KEY,checked TEXT,error TEXT);
         ''')
         columns = {r['name'] for r in c.execute('PRAGMA table_info(articles)')}
         for name, definition in [('production_kind', "TEXT DEFAULT 'Onbekend'"), ('season_number','INTEGER'), ('classification_reviewed','INTEGER DEFAULT 0'), ('excluded','INTEGER DEFAULT 0')]:
@@ -72,6 +73,14 @@ def init():
 
 def clean(value):
     return re.sub(r'\s+', ' ', html.unescape(re.sub('<[^>]*>', ' ', value or ''))).strip()
+
+
+def decode_page(raw, encoding=None):
+    if not encoding:
+        match=re.search(rb'charset\s*=\s*["\x27]?([a-zA-Z0-9_-]+)',raw[:4096],re.I)
+        encoding=match.group(1).decode('ascii') if match else 'utf-8'
+    if encoding.lower() in ('iso-8859-1','latin-1'):encoding='windows-1252'
+    return raw.decode(encoding,errors='replace')
 
 def classify(title, summary=''):
     text = (title + ' ' + summary).lower()
@@ -100,7 +109,7 @@ def parse_feed(data):
             yield {'title': clean(item.findtext(ns+'title')), 'url': link.get('href', '') if link is not None else '', 'summary': clean(item.findtext(ns+'summary')), 'published': item.findtext(ns+'published') or item.findtext(ns+'updated'), 'publisher': ''}
     else:
         for item in items:
-            yield {'title': clean(item.findtext('title')), 'url': (item.findtext('link') or '').strip(), 'summary': clean(item.findtext('description')), 'published': item.findtext('pubDate'), 'publisher': clean(item.findtext('source'))}
+            yield {'title': clean(item.findtext('title')), 'url': (item.findtext('link') or '').strip(), 'summary': clean(item.findtext('{http://purl.org/rss/1.0/modules/content/}encoded') or item.findtext('description')), 'published': item.findtext('pubDate'), 'publisher': clean(item.findtext('source'))}
 
 def publication_date(value):
     if not value:
@@ -121,9 +130,9 @@ def relevant(item, source_id):
         title = title.removesuffix(' - ' + publisher)
     summary = item.get('summary', '').replace(publisher, '') if publisher else item.get('summary', '')
     text = title + ' ' + summary
-    series = r'\b(?:[a-zà-ÿ]*series?|sitcom|drama)\b'
+    series = r'\b(?:[a-zà-ÿ]*series?|sitcom|drama|gameshow|spelshow|quiz|partygame|realityprogramma|datingprogramma|talentenjacht|documentaire|tv-programma|televisieprogramma)\b'
     if not re.search(series, text, re.I):
-        if not (re.search(r'\bseizoen\b', title, re.I) and re.search(r'\b(tv|televisie|videoland|netflix|npo|sbs6|opnames)\b', text, re.I)):
+        if not (re.search(r'\bseizoen\b|binnenkort te zien|komt naar televisie', title, re.I) and re.search(r'\b(tv|televisie|videoland|netflix|npo|sbs6|rtl|opnames)\b', text, re.I)):
             return False
     if re.search(r'\b(podcastserie|concertserie|concertseizoen|theaterseizoen|culturele seizoen|eredivisie|wereldtitel|voetbal|ajax|psv)\b', title, re.I):
         return False
@@ -178,7 +187,25 @@ def fetch_source(source):
         data = response.read(3_000_001)
     if len(data) > 3_000_000:
         raise ValueError('Feed is groter dan 3 MB')
-    return list(parse_feed(data))
+    items=list(parse_feed(data))
+    # User-supplied older articles may have aged out of a feed. Import each once.
+    for link in source.get('initial_urls',[]):
+        with connect() as c:
+            exists=c.execute('SELECT 1 FROM articles WHERE url=?',(link,)).fetchone()
+        if exists:continue
+        public_url(link)
+        with build_opener(PublicRedirect()).open(Request(link,headers={'User-Agent':'SeriesRadar/1.0'}),timeout=20) as r:
+            raw=r.read(3_000_001)
+            if len(raw)>3_000_000:raise ValueError('Pagina groter dan 3 MB')
+            parser=dossier.ArticleParser();parser.feed(decode_page(raw,r.headers.get_content_charset()))
+        title=' '.join(parser.headings) or parser.title
+        published=None
+        for schema in parser.schemas:
+            nodes=schema if isinstance(schema,list) else schema.get('@graph',[schema]) if isinstance(schema,dict) else []
+            for node in nodes:
+                if isinstance(node,dict) and node.get('datePublished'):published=node['datePublished']
+        items.append({'title':title,'summary':'\n'.join(parser.paragraphs),'url':link,'published':published,'publisher':source['name']})
+    return items
 
 def ingest(c, source, items):
     added = 0
@@ -192,7 +219,7 @@ def ingest(c, source, items):
         phase, reason = classify(item['title'], item['summary'])
         result = c.execute('''INSERT OR IGNORE INTO articles
           (id,title,url,summary,source,publisher,published,discovered,phase,reason)
-          VALUES (?,?,?,?,?,?,?,?,?,?)''', (key, item['title'][:700], item['url'], item['summary'][:650], source['id'], item['publisher'] or source['name'], publication_date(item['published']), now(), phase, reason))
+          VALUES (?,?,?,?,?,?,?,?,?,?)''', (key, item['title'][:700], item['url'], item['summary'][:12000], source['id'], item['publisher'] or source['name'], publication_date(item['published']), now(), phase, reason))
         added += result.rowcount
         name=series_catalog.extract_name(item)
         if name:
@@ -207,6 +234,7 @@ def get_catalog():
         saved=[dict(r) for r in c.execute('SELECT * FROM dossier_data')]
         imported=[dict(r) for r in c.execute('SELECT * FROM dossier_sources ORDER BY checked')]
         facts={r['article_id']:json.loads(r['facts']) for r in c.execute('SELECT * FROM article_facts')}
+        checks={r['key']:dict(r) for r in c.execute('SELECT * FROM enrichment_checks')}
     result=series_catalog.catalog(articles)
     for group in result['series']:
         values={r['scope']:{'revision':r['revision'],'fields':json.loads(r['fields'])} for r in saved if r['series_id']==group['id']}
@@ -217,6 +245,7 @@ def get_catalog():
             candidates.setdefault(r['scope'],{}).update(json.loads(r['facts'] or '{}'))
             group['metadata_sources'].append({k:r[k] for k in ('scope','url','checked','error')})
         group['dossiers']=dossier.prepare(group,values,candidates,facts)
+        group['tvdb_check']=checks.get('tvdb:'+group['id'])
     result['dossier_fields']=[{'key':k,'label':label,'section':section} for k,label,section in dossier.FIELDS]
     return result
 
@@ -228,15 +257,16 @@ def import_metadata(series_id,scope,name,url):
             data=response.read(3_000_001)
             if len(data)>3_000_000:raise ValueError('De pagina is te groot')
             if 'html' not in response.headers.get('Content-Type',''):raise ValueError('Gebruik een HTML-nieuwsbericht')
-            encoding=response.headers.get_content_charset() or 'utf-8'
-        parser=dossier.ArticleParser();parser.feed(data.decode(encoding,errors='replace'))
+            encoding=response.headers.get_content_charset()
+        markup=decode_page(data,encoding)
+        parser=dossier.ArticleParser();parser.feed(markup)
         text=parser.text_for(name)
         # Prevent importing a different numbered season into this production.
         detected=series_catalog.season_of(' '.join(parser.headings))
         expected=scope.split(':')[-1]
         if detected and expected!='?' and int(expected)!=detected:
             raise ValueError('Deze bron noemt een ander seizoen. Kies het bijbehorende seizoen in het dossier.')
-        facts=dossier.extract(text,name,url)
+        facts=dossier.tvdb_facts(markup,name,url) if urlparse(url).hostname in ('thetvdb.com','www.thetvdb.com') else dossier.extract(text,name,url)
         with connect() as c:
             c.execute('INSERT OR REPLACE INTO dossier_sources VALUES (?,?,?,?,?,?,NULL)',(series_id,scope,url,name,json.dumps(facts),now()))
         return facts
@@ -244,6 +274,64 @@ def import_metadata(series_id,scope,name,url):
         with connect() as c:
             c.execute('UPDATE dossier_sources SET checked=?,error=? WHERE series_id=? AND scope=? AND url=?',(now(),str(exc)[:250],series_id,scope,url))
         raise
+
+
+def due_check(key, days=1):
+    with connect() as c:
+        row=c.execute('SELECT checked FROM enrichment_checks WHERE key=?',(key,)).fetchone()
+    return not row or row['checked'] < datetime.fromtimestamp(time.time()-days*86400,timezone.utc).isoformat()
+
+
+def record_check(key,error=None):
+    with connect() as c:
+        c.execute('INSERT OR REPLACE INTO enrichment_checks VALUES (?,?,?)',(key,now(),error))
+
+
+def enrich_articles(limit=8):
+    """Bounded direct-page reads, including older stored fragments; errors back off a day."""
+    with connect() as c:
+        rows=[dict(r) for r in c.execute('SELECT * FROM articles WHERE excluded=0 ORDER BY published DESC')]
+    count=0
+    for a in rows:
+        if count>=limit:break
+        if urlparse(a['url']).hostname=='news.google.com':continue
+        name=a.get('series_title') or series_catalog.extract_name(a)
+        if not name or not due_check('article:'+a['id']):continue
+        count+=1
+        try:
+            public_url(a['url'])
+            with build_opener(PublicRedirect()).open(Request(a['url'],headers={'User-Agent':'SeriesRadar/1.0'}),timeout=20) as r:
+                raw=r.read(3_000_001)
+                if len(raw)>3_000_000:raise ValueError('Pagina groter dan 3 MB')
+                parser=dossier.ArticleParser();parser.feed(decode_page(raw,r.headers.get_content_charset()))
+            text=parser.text_for(name)
+            facts=dossier.extract(text,name,a['url'])
+            with connect() as c:
+                c.execute('UPDATE articles SET summary=? WHERE id=?',(text[:12000],a['id']))
+                c.execute('INSERT OR REPLACE INTO article_facts VALUES (?,?)',(a['id'],json.dumps(facts)))
+            record_check('article:'+a['id'])
+        except Exception as exc:record_check('article:'+a['id'],str(exc)[:250])
+
+
+def check_tvdb(group):
+    # A slug is a cheap candidate lookup, not proof that other spellings do not exist.
+    url='https://thetvdb.com/series/'+series_catalog.normalize(group['name']).replace(' ','-')
+    try:
+        profile=next((p for p in group['dossiers'] if p['scope']=='new:1'),group['dossiers'][0] if group['dossiers'] else None)
+        if not profile:return
+        import_metadata(group['id'],profile['scope'],group['name'],url)
+        record_check('tvdb:'+group['id'])
+    except Exception as exc:
+        record_check('tvdb:'+group['id'],'Niet automatisch bevestigd; zoek ook handmatig. '+str(exc)[:180])
+
+
+def enrich_catalog():
+    enrich_articles()
+    count=0
+    for group in get_catalog()['series']:
+        if count>=4:break
+        if not due_check('tvdb:'+group['id'],7):continue
+        check_tvdb(group);count+=1
 
 def scan():
     if not LOCK.acquire(blocking=False):
@@ -268,6 +356,7 @@ def scan():
                     with connect() as c:
                         c.execute('''INSERT INTO sources (id,name,last_attempt,error) VALUES (?,?,?,?)
                           ON CONFLICT(id) DO UPDATE SET last_attempt=excluded.last_attempt,error=excluded.error''', (s['id'], s['name'], stamp, str(exc)[:250]))
+        enrich_catalog()
         with connect() as c:
             c.execute("INSERT OR REPLACE INTO meta VALUES ('last_finished',?)", (now(),))
             c.execute("INSERT OR REPLACE INTO meta VALUES ('next_scan',?)", (str(time.time() + INTERVAL),))
@@ -350,11 +439,17 @@ class Handler(BaseHTTPRequestHandler):
             if self.path == '/api/scan':
                 WAKE.set()
                 return self.respond(202, {'ok': True})
-            if self.path in ('/api/dossier','/api/dossier/import'):
+            if self.path in ('/api/dossier','/api/dossier/import','/api/dossier/check-tvdb'):
                 group=next((g for g in get_catalog()['series'] if g['id']==data.get('series_id')),None)
                 if not group: return self.respond(404,{'error':'Serie niet gevonden'})
                 profile=next((p for p in group['dossiers'] if p['scope']==data.get('scope')),None)
                 if not profile:raise ValueError('Selecteer een bestaande productie of seizoen')
+                if self.path.endswith('/check-tvdb'):
+                    if not LOCK.acquire(blocking=False):return self.respond(409,{'error':'Er loopt een scan. Probeer het na de scan opnieuw.'})
+                    try:
+                        if due_check('tvdb:'+group['id']):check_tvdb(group)
+                    finally:LOCK.release()
+                    return self.respond(200,{'ok':True})
                 if self.path.endswith('/import'):
                     url=data.get('url','')
                     if not isinstance(url,str) or len(url)>2000:raise ValueError('Ongeldige bronlink')

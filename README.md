@@ -29,7 +29,7 @@ Een releasedatum, trailer of verstreken kalenderdatum bewijst **niet** dat de se
 
 De app gebruikt conservatieve tekstregels op feedkoppen en korte fragmenten. Hij zoekt expliciet naar een nieuwe serie of nieuw seizoen, een herkenbare serietitel en Nederlandse context. Bekende titels worden in andere berichten herkend. Kijktips, recensies, verzameloverzichten en veel niet-relevant nieuws gaan buiten de hoofdselectie. Bij onduidelijkheid wordt geen serietitel verzonnen.
 
-Dit is **geen AI die alle artikelen volledig leest**, geen volledige seriecatalogus en geen controle tegen een bestaande TVDB-database. ‘Nieuwe serie’ betekent dat het nieuws die productie als nieuw beschrijft; niet dat de titel nog ontbreekt op TVDB. Ook reality- en documentaireseries kunnen voorkomen. Reboots kunnen een bestaande titel gebruiken. Controleer automatische koppelingen voordat je informatie overneemt. Bij een ontbrekende titel, meerdere series in één bericht, een afwijkende schrijfwijze of weinig context is handmatig koppelen nodig. Een meer-serie-artikel kan handmatig aan één dossier worden gekoppeld; automatische koppeling aan meerdere dossiers wordt niet gedaan.
+Dit is **geen AI die alle artikelen volledig leest**, geen volledige seriecatalogus en geen uitputtende controle tegen de volledige TVDB-database. ‘Nieuwe serie’ betekent dat het nieuws die productie als nieuw beschrijft; niet dat de titel nog ontbreekt op TVDB. Ook reality- en documentaireseries kunnen voorkomen. Reboots kunnen een bestaande titel gebruiken. Controleer automatische koppelingen voordat je informatie overneemt. Bij een ontbrekende titel, meerdere series in één bericht, een afwijkende schrijfwijze of weinig context is handmatig koppelen nodig. Een meer-serie-artikel kan handmatig aan één dossier worden gekoppeld; automatische koppeling aan meerdere dossiers wordt niet gedaan.
 
 ## Dossiers voor IMDb en TVDB
 
@@ -64,7 +64,7 @@ Gebruik voor een feed de echte RSS/Atom-URL, niet de homepage. Alleen publieke H
 
 De ingebouwde bronnen staan in `sources.json`; wijzigingen via de website worden als overrides in SQLite opgeslagen en hebben voorrang. Custom bronnen staan ook in SQLite. Je hoeft voor normaal bronbeheer geen bestand te wijzigen en de container niet te herstarten. Back-ups bevatten dus zowel je broninstellingen als beoordelingen.
 
-Er zijn standaard negen bronnen/zoekfeeds voor AVROTROS, RTL/Videoland, Talpa/SBS6, NPO/omroepen, Nederlandse producties bij streamers, producenten en vakmedia. Alleen AVROTROS is standaard een directe persfeed; de andere bronnen gebruiken gerichte Google Nieuws-zoekopdrachten. Directe feeds hebben de voorkeur als ze beschikbaar zijn. Google kan berichten vertraagd indexeren of missen. De app kan geen volledige dekking of voorsprong op iedereen garanderen. Besloten perslijsten en sociale media worden niet uitgelezen.
+Er zijn standaard negentien bronnen/zoekfeeds voor AVROTROS, RTL/Videoland, Talpa/SBS6, NPO/omroepen, Nederlandse producties bij streamers, producenten en vakmedia. AVROTROS en Broadcast Magazine hebben directe feeds; daarnaast zijn er gerichte Google Nieuws-zoekopdrachten, onder andere voor FilmVandaag, TVgids, TVvisie en landelijke nieuwsmedia. Directe feeds hebben de voorkeur als ze beschikbaar zijn. Google kan berichten vertraagd indexeren of missen. De app kan geen volledige dekking of voorsprong op iedereen garanderen. Besloten perslijsten en sociale media worden niet uitgelezen.
 
 ## Starten op je VPS
 
@@ -109,7 +109,7 @@ In `.env`:
 - `PORT`: lokale VPS-poort, standaard `8080`.
 - `SCAN_INTERVAL_SECONDS`: standaard `1800`, minimum `60`.
 
-De zoekfeeds vragen standaard tot 90 dagen terug. Google bepaalt welke resultaten en datums worden teruggegeven; de directe feed bepaalt haar eigen terugblik. De eerste scan importeert dus ook oudere aankondigingen. Gelijke koppen worden niet herhaald toegevoegd. Andere koppen over dezelfde serie blijven aparte artikelen; een uitgever kan bij een gewijzigde kop nog een dubbel artikel opleveren.
+De zoekfeeds vragen standaard tot 180 dagen terug. Google bepaalt welke resultaten en datums worden teruggegeven; de directe feed bepaalt haar eigen terugblik. De eerste scan importeert dus ook oudere aankondigingen. Gelijke koppen worden niet herhaald toegevoegd. Andere koppen over dezelfde serie blijven aparte artikelen; een uitgever kan bij een gewijzigde kop nog een dubbel artikel opleveren.
 
 ## Data, updates en back-ups
 
@@ -145,3 +145,13 @@ node --check public/app.js
 Lokaal zonder instellingen luistert de app op 127.0.0.1:8080 zonder login. Voor een netwerkbinding weigert hij te starten zonder wachtwoord. `python app.py --scan-once` voert één echte scan uit. `/health` controleert HTTP en SQLite; individuele bronfouten staan onder Bronnen.
 
 De tests dekken onder meer seizoenisolatie, titelherkenning, foutieve koppelingen, statusregels, bronvalidatie, duurzame broninstellingen, dubbele berichten en authenticatie. De GitHub-workflow test ook het bouwen en starten van de Docker-image. De lokale Docker-engine moet draaien om dat lokaal te kunnen reproduceren.
+
+## Uitgebreidere ontdekking en metadata
+
+De selectie herkent ook spelshows, quizzen, partygames, reality, datingprogramma’s, talentenjachten en documentaires. Nieuwe zoekfeeds dekken genres en aankondigingen breder. Broadcast Magazine heeft ook een aparte productiefeed. De twee gemelde voorbeeldartikelen worden eenmaal rechtstreeks geïmporteerd als ze nog ontbreken, ook als ze uit de actuele feed zijn verdwenen. Eigen broninstellingen blijven voorrang houden.
+
+Per scan worden maximaal acht directe artikelpagina’s uitgelezen (maximaal eenmaal per dag per artikel) en vier TVDB-kandidaten gecontroleerd (maximaal eenmaal per week). TVDB controleren in het dossier kan een controle vervroegen, met een dagcache. Een TVDB-kandidaat wordt gevonden via de titel als URL-slug; alleen een exacte titel, een geldig serie-ID en een Nederlands productieland worden automatisch bevestigd. Andere schrijfwijzen, ontbrekende landen en onbereikbare pagina’s blijven onbevestigd en hebben een handmatige zoeklink. Dit is geen volledige TVDB-zoekmachine. De TVDB-controle staat los van het handmatige vinkje ‘Verwerkt voor TVDB’.
+
+Volledige RSS-inhoud en directe pagina’s leveren meer expliciete gegevens op: synopsisvoorstellen, producenten, taal, genres, afleveringen, netwerk en releaseplanning. De oorspronkelijke bron blijft bij ieder veld staan. De taal van een nieuwsartikel bewijst niet de originele taal van een serie. Ontbrekende jaartallen worden niet gegokt. Synopsisvoorstellen zijn brontekst en moeten vóór inzending worden herschreven. Google Nieuws-links worden niet automatisch omzeild: voor zulke berichten blijven de feedgegevens beschikbaar; directe feeds en handmatig gekoppelde perspagina’s leveren de volledige tekst.
+
+Het overzicht vult ultrawide-schermen met extra kaartkolommen. Vanaf 1800 pixels gebruikt het dossier twee sectiekolommen. Mobiele breakpoints blijven behouden. Er zijn geen betaalde AI-oproepen toegevoegd.

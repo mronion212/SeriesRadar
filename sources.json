@@ -8,49 +8,115 @@
   {
     "id": "rtl",
     "name": "RTL & Videoland",
-    "query": "(site:rtl.nl OR site:videoland.com) (\"nieuwe serie\" OR \"nieuw seizoen\" OR dramaserie OR opnames OR releasedatum) when:90d",
+    "query": "(site:rtl.nl OR site:videoland.com) (serie OR seizoen OR drama OR comedy OR thriller OR misdaad OR documentaire OR docuserie OR reality OR gameshow OR spelshow OR quiz OR partygame OR talentenjacht OR datingprogramma OR \"nieuw programma\" OR \"binnenkort te zien\" OR opnames OR première) when:180d",
     "kind": "Google Nieuws"
   },
   {
     "id": "avrotros",
     "name": "AVROTROS",
-    "query": "site:avrotros.nl (\"nieuwe serie\" OR \"nieuw seizoen\" OR dramaserie OR opnames OR releasedatum) when:90d",
+    "query": "site:avrotros.nl (serie OR seizoen OR drama OR comedy OR thriller OR misdaad OR documentaire OR docuserie OR reality OR gameshow OR spelshow OR quiz OR partygame OR talentenjacht OR datingprogramma OR \"nieuw programma\" OR \"binnenkort te zien\" OR opnames OR première) when:180d",
     "kind": "Google Nieuws"
   },
   {
     "id": "talpa",
     "name": "Talpa & SBS6",
-    "query": "(Talpa OR SBS6 OR Net5) (nieuwe serie OR dramaserie OR opnames) when:90d",
+    "query": "(Talpa OR SBS6 OR Net5) (nieuwe serie OR dramaserie OR opnames) when:180d",
     "kind": "Google Nieuws"
   },
   {
     "id": "npo",
     "name": "NPO & omroepen",
-    "query": "(site:npo.nl OR site:bnnvara.nl OR site:kro-ncrv.nl OR site:omroepmax.nl OR site:eo.nl) (\"nieuwe serie\" OR \"nieuw seizoen\" OR dramaserie OR opnames OR releasedatum) when:90d",
+    "query": "(site:npo.nl OR site:bnnvara.nl OR site:kro-ncrv.nl OR site:omroepmax.nl OR site:eo.nl) (serie OR seizoen OR drama OR comedy OR thriller OR misdaad OR documentaire OR docuserie OR reality OR gameshow OR spelshow OR quiz OR partygame OR talentenjacht OR datingprogramma OR \"nieuw programma\" OR \"binnenkort te zien\" OR opnames OR première) when:180d",
     "kind": "Google Nieuws"
   },
   {
     "id": "streamers",
     "name": "Netflix, Prime & Disney+",
-    "query": "(Netflix OR Prime Video OR Disney OR HBO) (\"Nederlandse serie\" OR \"Nederlandse dramaserie\") when:90d",
+    "query": "(Netflix OR Prime Video OR Disney OR HBO) (\"Nederlandse serie\" OR \"Nederlandse dramaserie\") when:180d",
     "kind": "Google Nieuws"
   },
   {
     "id": "producers",
     "name": "Nederlandse producenten",
-    "query": "(Fremantle OR EndemolShine OR Lemming Film OR Pupkin OR Hollands Licht OR NL Film OR NewBe OR Millstreet) (serie OR dramaserie) when:90d",
+    "query": "(Fremantle OR EndemolShine OR Lemming Film OR Pupkin OR Hollands Licht OR NL Film OR NewBe OR Millstreet) (serie OR dramaserie) when:180d",
     "kind": "Google Nieuws"
   },
   {
     "id": "industry",
     "name": "Vakmedia",
-    "query": "(site:adformatie.nl OR site:broadcastmagazine.nl OR site:spreekbuis.nl) (serie OR dramaserie) when:90d",
+    "query": "(site:adformatie.nl OR site:broadcastmagazine.nl OR site:spreekbuis.nl) (serie OR seizoen OR drama OR comedy OR thriller OR misdaad OR documentaire OR docuserie OR reality OR gameshow OR spelshow OR quiz OR partygame OR talentenjacht OR datingprogramma OR \"nieuw programma\" OR \"binnenkort te zien\" OR opnames OR première) when:180d",
     "kind": "Google Nieuws"
   },
   {
     "id": "broad",
-    "name": "Nederlandse series · breed",
-    "query": "(\"Nederlandse serie\" OR \"Nederlandse dramaserie\" OR \"nieuwe Videoland serie\") (aangekondigd OR opnames OR première OR verschijnt OR ontwikkeling) when:90d",
+    "name": "Nederlandse series Â· breed",
+    "query": "(\"Nederlandse serie\" OR \"Nederlandse dramaserie\" OR \"nieuwe Videoland serie\") (aangekondigd OR opnames OR premiÃ¨re OR verschijnt OR ontwikkeling) when:180d",
+    "kind": "Google Nieuws"
+  },
+  {
+    "id": "filmvandaag",
+    "name": "FilmVandaag",
+    "query": "site:filmvandaag.nl (serie OR seizoen OR drama OR comedy OR thriller OR misdaad OR documentaire OR docuserie OR reality OR gameshow OR spelshow OR quiz OR partygame OR talentenjacht OR datingprogramma OR \"nieuw programma\" OR \"binnenkort te zien\" OR opnames OR première) when:180d",
+    "kind": "Google Nieuws"
+  },
+  {
+    "id": "broadcastmagazine",
+    "name": "Broadcast Magazine",
+    "query": "site:broadcastmagazine.nl (serie OR seizoen OR drama OR comedy OR thriller OR misdaad OR documentaire OR docuserie OR reality OR gameshow OR spelshow OR quiz OR partygame OR talentenjacht OR datingprogramma OR \"nieuw programma\" OR \"binnenkort te zien\" OR opnames OR première) when:180d",
+    "kind": "Google Nieuws"
+  },
+  {
+    "id": "tvgids",
+    "name": "TVgids.nl",
+    "query": "site:tvgids.nl (serie OR seizoen OR drama OR comedy OR thriller OR misdaad OR documentaire OR docuserie OR reality OR gameshow OR spelshow OR quiz OR partygame OR talentenjacht OR datingprogramma OR \"nieuw programma\" OR \"binnenkort te zien\" OR opnames OR première) when:180d",
+    "kind": "Google Nieuws"
+  },
+  {
+    "id": "tvvisie",
+    "name": "TVvisie",
+    "query": "(site:tvvisie.nl OR site:tvvisie.be) (serie OR seizoen OR drama OR comedy OR thriller OR misdaad OR documentaire OR docuserie OR reality OR gameshow OR spelshow OR quiz OR partygame OR talentenjacht OR datingprogramma OR \"nieuw programma\" OR \"binnenkort te zien\" OR opnames OR première) when:180d",
+    "kind": "Google Nieuws",
+    "initial_urls": [
+      "https://tvvisie.nl/streaming/11september2026/opnames-nieuwe-videoland-original-serie-sex-en-de-vinex-van-barry-atsma-en-noortje-herlaar-gestart_142299/"
+    ]
+  },
+  {
+    "id": "nieuwsmedia",
+    "name": "Landelijke nieuwsmedia",
+    "query": "(site:ad.nl OR site:nu.nl OR site:telegraaf.nl OR site:volkskrant.nl OR site:trouw.nl OR site:parool.nl) (serie OR seizoen OR drama OR comedy OR thriller OR misdaad OR documentaire OR docuserie OR reality OR gameshow OR spelshow OR quiz OR partygame OR talentenjacht OR datingprogramma OR \"nieuw programma\" OR \"binnenkort te zien\" OR opnames OR première) when:180d",
+    "kind": "Google Nieuws"
+  },
+  {
+    "id": "omroepen-extra",
+    "name": "Overige omroepen",
+    "query": "(site:omroepzwart.nl OR site:omroep-human.nl OR site:vpro.nl OR site:powned.tv OR site:wnl.tv OR site:ntr.nl) (serie OR seizoen OR drama OR comedy OR thriller OR misdaad OR documentaire OR docuserie OR reality OR gameshow OR spelshow OR quiz OR partygame OR talentenjacht OR datingprogramma OR \"nieuw programma\" OR \"binnenkort te zien\" OR opnames OR première) when:180d",
+    "kind": "Google Nieuws"
+  },
+  {
+    "id": "entertainment",
+    "name": "Entertainmentmedia",
+    "query": "(site:veronicasuperguide.nl OR site:serietotaal.nl OR site:nieuws.nl OR site:mediacourant.nl) (serie OR seizoen OR drama OR comedy OR thriller OR misdaad OR documentaire OR docuserie OR reality OR gameshow OR spelshow OR quiz OR partygame OR talentenjacht OR datingprogramma OR \"nieuw programma\" OR \"binnenkort te zien\" OR opnames OR première) when:180d",
+    "kind": "Google Nieuws"
+  },
+  {
+    "id": "broadcast-direct",
+    "name": "Broadcast Magazine · directe feed",
+    "url": "https://www.broadcastmagazine.nl/feed/",
+    "kind": "Directe persfeed",
+    "initial_urls": [
+      "https://www.broadcastmagazine.nl/in-productie/partygame-hitster-binnenkort-te-zien-bij-rtl/"
+    ]
+  },
+  {
+    "id": "broadcast-productie",
+    "name": "Broadcast Magazine · in productie",
+    "url": "https://www.broadcastmagazine.nl/category/in-productie/feed/",
+    "kind": "Directe persfeed"
+  },
+  {
+    "id": "formats",
+    "name": "Nederlandse non-fictie en amusement",
+    "query": "(Nederlandse OR Nederlanders OR Videoland OR NPO OR SBS6 OR RTL) (serie OR seizoen OR drama OR comedy OR thriller OR misdaad OR documentaire OR docuserie OR reality OR gameshow OR spelshow OR quiz OR partygame OR talentenjacht OR datingprogramma OR \"nieuw programma\" OR \"binnenkort te zien\" OR opnames OR première) (nieuw OR binnenkort OR aangekondigd OR opnames OR start) when:180d",
     "kind": "Google Nieuws"
   }
 ]

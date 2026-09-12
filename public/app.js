@@ -61,6 +61,11 @@ function renderDossier(){
  const profile=profiles.find(p=>p.scope===dossierScope);
  if(!profile)return;
  const fields=profile.fields;
+ const tvdbId=fields.tvdb_id?.value;
+ $('dossier-tvdb').href=tvdbId?'https://thetvdb.com/dereferrer/series/'+encodeURIComponent(tvdbId):'https://thetvdb.com/search?query='+encodeURIComponent(group.name);
+ $('dossier-tvdb').textContent=tvdbId?'Bestaand op TVDB · '+tvdbId+' ↗':'TVDB niet bevestigd · handmatig zoeken ↗';
+ $('dossier-tvdb-status').textContent=tvdbId?'Bestaand TVDB-ID vastgelegd.':group.tvdb_check?((group.tvdb_check.error||'Controle afgerond')+' · '+clock(group.tvdb_check.checked)):'TVDB nog niet gecontroleerd. Automatische controle volgt tijdens scans.';
+
  const renderField=f=>{const v=fields[f.key];return `<div class="metadata-value ${v?.value?'':'not-known'}"><dt>${esc(f.label)}</dt><dd>${v?.value?esc(v.value).replaceAll('\n','<br>'):'Nog onbekend'}</dd>${v?.value?`<div class="fact-source"><span>${v.origin==='manual'?'Handmatig beoordeeld':'Automatisch voorstel'}</span>${v.source_url?`<a href="${esc(v.source_url)}" target="_blank" rel="noopener noreferrer" title="${esc(v.evidence||'Bron bekijken')}">Bron ↗</a>`:'<span>Bron ontbreekt</span>'}</div>`:''}</div>`;};
  $('dossier-metadata').innerHTML=`<div class="dossier-summary"><div>${badge(profile.status)}<h3>${esc(productionLabel(profile))}</h3><p>${profile.filled} van ${profile.total} basisvelden ingevuld. ${profile.missing.length} nog onbekend.</p></div><div class="completion-number">${profile.filled}<span>/${profile.total}</span></div></div>`+['Basis','Uitgave','Links','Aanvullend'].map(section=>`<section class="metadata-section"><h3>${section}</h3><dl class="metadata-grid">${state.dossier_fields.filter(f=>f.section===section).map(renderField).join('')}</dl></section>`).join('');
  $('dossier-people').innerHTML=`<p class="explanation">Cast en crew voor ${esc(productionLabel(profile).toLowerCase())}. Rollen die niet bevestigd zijn, blijven leeg.</p><dl class="people-grid">${state.dossier_fields.filter(f=>f.section==='Makers').map(renderField).join('')}</dl>`;
@@ -136,3 +141,5 @@ $('import-form').onsubmit=async e=>{e.preventDefault();e.submitter.disabled=true
 $('copy-dossier').onclick=async()=>{try{await navigator.clipboard.writeText($('export-text').value);$('export-status').textContent='Gekopieerd.';}catch{$('export-text').focus();$('export-text').select();$('export-status').textContent='Selectie klaar. Kopieer met Ctrl+C.';}};
 $('download-dossier').onclick=()=>{const g=state.series.find(g=>g.id===dossierId),p=g?.dossiers.find(p=>p.scope===dossierScope);if(!p)return;const url=URL.createObjectURL(new Blob([JSON.stringify({title:g.name,...p,news_sources:g.articles.map(a=>({title:a.title,url:a.url}))},null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download=g.name.replace(/[^a-z0-9]/gi,'-')+'-'+p.scope.replace(':','-')+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
 load();setInterval(load,10000);
+
+$('check-tvdb').onclick=async e=>{e.target.disabled=true;try{await request('/api/dossier/check-tvdb',{series_id:dossierId,scope:dossierScope});await load();}catch(e){$('dossier-tvdb-status').textContent=e.message;}finally{e.target.disabled=false;}};

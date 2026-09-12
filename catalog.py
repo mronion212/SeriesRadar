@@ -6,7 +6,7 @@ import unicodedata
 PHASES = ['Onbekend', 'Aangekondigd', 'In productie', 'Geproduceerd', 'Beschikbaar']
 KINDS = ['Onbekend', 'Nieuwe serie', 'Nieuw seizoen']
 MONTHS = 'januari|februari|maart|april|mei|juni|juli|augustus|september|oktober|november|december'
-SERIES_WORD = r'(?:[a-zà-ÿ]*serie|sitcom)\b'
+SERIES_WORD = r'(?:[a-zà-ÿ]*serie|sitcom|gameshow|spelshow|quiz|partygame|realityprogramma|datingprogramma|talentenjacht|documentaire|tv-programma|televisieprogramma)\b'
 ORDINALS = {'eerste':1,'tweede':2,'derde':3,'vierde':4,'vijfde':5,'zesde':6,'zevende':7,'achtste':8,'negende':9,'tiende':10,'elfde':11,'twaalfde':12}
 ALIASES_PHASE = {'Te beoordelen':'Onbekend','Gereleased':'Beschikbaar','Release gepland':'Aangekondigd'}
 
@@ -47,11 +47,13 @@ def kind_of(text, season):
         return 'Nieuw seizoen' if season != 1 else 'Nieuwe serie'
     if re.search(r'\bnieuwe?\b.{0,55}' + SERIES_WORD, text, re.I) or season == 1:
         return 'Nieuwe serie'
+    if re.search(SERIES_WORD, text, re.I) and re.search(r'binnenkort te zien|komt naar televisie|maakt .{0,20}debuut', text, re.I):
+        return 'Nieuwe serie'
     return 'Onbekend'
 
 def tidy_name(value):
     value = value.strip(' \"\'‘’“”.,:;!?')
-    value = re.split(r'\s+(?:van start|in de maak|in duistere|naar het boek|en nóg|en nog|over|met|bij|op|vanaf|in 20\d\d|seizoen|komt|krijgt|keert|toont|vertelt|overtreft|draait|duikt|speelt|laat|wordt|is|te zien|te streamen|bekend|onthuld)\b|[,!?]|\s+-\s+', value, maxsplit=1, flags=re.I)[0]
+    value = re.split(r'\s+(?:binnenkort|van start|in de maak|in duistere|naar het boek|en nóg|en nog|over|met|bij|op|vanaf|in 20\d\d|seizoen|komt|krijgt|keert|toont|vertelt|overtreft|draait|duikt|speelt|laat|wordt|is|te zien|te streamen|bekend|onthuld)\b|[,!?]|\s+-\s+', value, maxsplit=1, flags=re.I)[0]
     value = value.strip(' \"\'‘’“”.,:;!?')
     if not 2 <= len(value) <= 85 or len(value.split()) > 12:
         return ''
@@ -108,7 +110,7 @@ def assess(a, known):
     rejected = noise_reason(a)
     if re.search(r'\b(?:Britse|Amerikaanse|Duitse|Deense|Zweedse|Spaanse|buitenlandse)\b.{0,30}serie', title, re.I):
         rejected = 'Buitenlandse serie; geen Nederlandse productie vastgesteld'
-    nl = bool(re.search(r'\b(?:Nederlandse?|Nederlandstalige|Videoland|AVROTROS|NPO|Talpa|SBS6|BNNVARA|KRO.NCRV|PowNed|VPRO|EO)\b', text, re.I))
+    nl = bool(re.search(r'\b(?:Nederlandse?|Nederlanders|Nederlandstalige|Videoland|AVROTROS|NPO|Talpa|SBS6|BNNVARA|KRO.NCRV|PowNed|VPRO|EO)\b', text, re.I))
     nl = nl or a['source'] in ('avrotros-direct','avrotros','npo')
     if not nl and not rejected:
         rejected = 'Nederlandse productie nog niet vastgesteld'
