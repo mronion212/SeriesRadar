@@ -1,0 +1,56 @@
+[
+  {
+    "id": "avrotros-direct",
+    "name": "AVROTROS Pers",
+    "url": "https://pers.avrotros.nl/feed/nl",
+    "kind": "Directe persfeed"
+  },
+  {
+    "id": "rtl",
+    "name": "RTL & Videoland",
+    "query": "(site:rtl.nl OR site:videoland.com) (\"nieuwe serie\" OR \"nieuw seizoen\" OR dramaserie OR opnames OR releasedatum) when:90d",
+    "kind": "Google Nieuws"
+  },
+  {
+    "id": "avrotros",
+    "name": "AVROTROS",
+    "query": "site:avrotros.nl (\"nieuwe serie\" OR \"nieuw seizoen\" OR dramaserie OR opnames OR releasedatum) when:90d",
+    "kind": "Google Nieuws"
+  },
+  {
+    "id": "talpa",
+    "name": "Talpa & SBS6",
+    "query": "(Talpa OR SBS6 OR Net5) (nieuwe serie OR dramaserie OR opnames) when:90d",
+    "kind": "Google Nieuws"
+  },
+  {
+    "id": "npo",
+    "name": "NPO & omroepen",
+    "query": "(site:npo.nl OR site:bnnvara.nl OR site:kro-ncrv.nl OR site:omroepmax.nl OR site:eo.nl) (\"nieuwe serie\" OR \"nieuw seizoen\" OR dramaserie OR opnames OR releasedatum) when:90d",
+    "kind": "Google Nieuws"
+  },
+  {
+    "id": "streamers",
+    "name": "Netflix, Prime & Disney+",
+    "query": "(Netflix OR Prime Video OR Disney OR HBO) (\"Nederlandse serie\" OR \"Nederlandse dramaserie\") when:90d",
+    "kind": "Google Nieuws"
+  },
+  {
+    "id": "producers",
+    "name": "Nederlandse producenten",
+    "query": "(Fremantle OR EndemolShine OR Lemming Film OR Pupkin OR Hollands Licht OR NL Film OR NewBe OR Millstreet) (serie OR dramaserie) when:90d",
+    "kind": "Google Nieuws"
+  },
+  {
+    "id": "industry",
+    "name": "Vakmedia",
+    "query": "(site:adformatie.nl OR site:broadcastmagazine.nl OR site:spreekbuis.nl) (serie OR dramaserie) when:90d",
+    "kind": "Google Nieuws"
+  },
+  {
+    "id": "broad",
+    "name": "Nederlandse series · breed",
+    "query": "(\"Nederlandse serie\" OR \"Nederlandse dramaserie\" OR \"nieuwe Videoland serie\") (aangekondigd OR opnames OR première OR verschijnt OR ontwikkeling) when:90d",
+    "kind": "Google Nieuws"
+  }
+]

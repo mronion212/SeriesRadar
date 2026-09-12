@@ -1,0 +1,37 @@
+name: Test and Docker build
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: python -m unittest discover -s tests -v
+      - run: python tests/http_smoke.py
+      - run: node --check public/app.js
+      - run: docker build -t seriesradar:test .
+      - name: Start container and verify authenticated dashboard
+        run: |
+          docker run -d --name radar-test -e ADMIN_PASSWORD=ci-only-password -p 127.0.0.1:8080:8080 --read-only --tmpfs /tmp seriesradar:test
+          python - <<'PY'
+          import base64, json, time, urllib.request
+          for attempt in range(20):
+              try:
+                  urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=2)
+                  break
+              except OSError:
+                  time.sleep(1)
+          token = base64.b64encode(b'admin:ci-only-password').decode()
+          request = urllib.request.Request('http://127.0.0.1:8080/api/dashboard', headers={'Authorization': 'Basic ' + token})
+          data = json.load(urllib.request.urlopen(request, timeout=10))
+          assert 'series' in data and len(data['sources']) == 9
+          PY
+      - if: always()
+        run: docker logs radar-test || true

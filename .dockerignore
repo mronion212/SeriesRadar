@@ -1,0 +1,8 @@
+.git
+.env
+data
+test-data
+__pycache__
+tests
+*.log
+.sites-runtime

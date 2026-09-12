@@ -1,0 +1,10 @@
+.env
+data/
+__pycache__/
+*.pyc
+.sites-runtime/
+test-data/
+*.log
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm

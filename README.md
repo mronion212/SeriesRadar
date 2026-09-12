@@ -1,0 +1,134 @@
+# SeriesRadar
+
+Een rustige, Nederlandse webapp voor **nieuwe Nederlandse series en nieuwe seizoenen**. Nieuws wordt per serietitel gebundeld. Python 3.13, SQLite en Docker Compose; geen externe Python-pakketten of API-sleutels nodig.
+
+## Gebruik
+
+- **Series** opent standaard op **Nieuwe serie**. Kies **Nieuw seizoen** of **Alle producties**, filter op status en sorteer op laatste nieuws of titel.
+- Klik op een serietitel voor het dossier: producties/seizoenen met hun eigen status, de onderbouwing en alle gekoppelde nieuwsartikelen, op publicatiedatum gesorteerd.
+- **Te beoordelen** bevat berichten waarvoor titel, herkomst of nieuwe productie onvoldoende duidelijk is. Met **Beoordelen / koppelen** kies je de serietitel, het type en eventueel het seizoennummer.
+- Gebruik dezelfde serietitel om artikelen te bundelen. Een correctie verplaatst alleen dat artikel. Hoofdletters, leestekens en accenten worden bij het groeperen genegeerd. Verschillende series met dezelfde naam kun je onderscheiden met bijvoorbeeld een jaartal in de titel.
+- Je kunt notities bewaren, een artikel afvinken voor TVDB of negeren. Onder **Buiten selectie / genegeerd** kun je een artikel ook herstellen. Een handmatige beoordeling kan de automatische selectie overrulen.
+- Er wordt niets automatisch op TVDB geplaatst; de link opent alleen de zoekpagina.
+
+### Productiestatus
+
+| Status | Betekenis |
+| --- | --- |
+| Aangekondigd | Aankondiging of releaseplanning gevonden. |
+| In productie | Expliciet bericht over gestarte/lopende opnames of productie. |
+| Geproduceerd | Een bericht noemt afgeronde opnames/productie. Dit is geen garantie dat iedere stap van de postproductie klaar is. |
+| Beschikbaar | Expliciet bericht dat de serie beschikbaar is. |
+| Onbekend | Het fragment bevat geen betrouwbare aanwijzing of meldt uitstel/annulering. Lees de onderbouwing. |
+
+Een releasedatum, trailer of verstreken kalenderdatum bewijst **niet** dat de serie geproduceerd of beschikbaar is. De app schuift een status daarom niet automatisch door na een datum. Per vastgestelde productie wordt de verst gevorderde expliciete status gebruikt: een generieke, latere aankondiging maakt afgeronde opnames niet ongedaan. Een minstens even recente handmatige beoordeling of expliciete annulering/uitstel krijgt voorrang. Publicatiedata bepalen de volgorde, niet het moment waarop de crawler een oud bericht vindt.
+
+**Seizoenen blijven gescheiden.** Een beschikbaar seizoen 1 maakt seizoen 2 niet beschikbaar. Een bericht zonder vastgesteld seizoen krijgt een apart blok en verandert de status van een genummerd seizoen niet. Nieuwe series worden als eerste seizoen gegroepeerd. ‘Nieuw seizoen’ zonder nummer blijft een aparte, onzekere groep; koppel die berichten handmatig zodra je het nummer weet.
+
+### Hoe streng is de selectie?
+
+De app gebruikt conservatieve tekstregels op feedkoppen en korte fragmenten. Hij zoekt expliciet naar een nieuwe serie of nieuw seizoen, een herkenbare serietitel en Nederlandse context. Bekende titels worden in andere berichten herkend. Kijktips, recensies, verzameloverzichten en veel niet-relevant nieuws gaan buiten de hoofdselectie. Bij onduidelijkheid wordt geen serietitel verzonnen.
+
+Dit is **geen AI die alle artikelen volledig leest**, geen volledige seriecatalogus en geen controle tegen een bestaande TVDB-database. ‘Nieuwe serie’ betekent dat het nieuws die productie als nieuw beschrijft; niet dat de titel nog ontbreekt op TVDB. Ook reality- en documentaireseries kunnen voorkomen. Reboots kunnen een bestaande titel gebruiken. Controleer automatische koppelingen voordat je informatie overneemt. Bij een ontbrekende titel, meerdere series in één bericht, een afwijkende schrijfwijze of weinig context is handmatig koppelen nodig. Een meer-serie-artikel kan handmatig aan één dossier worden gekoppeld; automatische koppeling aan meerdere dossiers wordt niet gedaan.
+
+## Nieuwsbronnen toevoegen
+
+Ga naar **Bronnen → Bron toevoegen**:
+
+1. Geef de bron een naam.
+2. Kies **RSS / Atom-feed** of **Google Nieuws-zoekopdracht**.
+3. Plak de feedlink of vul een zoekopdracht in.
+4. Klik **Bron testen** om te zien of de bron bereikbaar is en voorbeelden te bekijken.
+5. Klik **Bron opslaan**. Klik eventueel daarna **Nu scannen**.
+
+Voor een website zonder feed kun je bijvoorbeeld gebruiken:
+
+```text
+site:producent.nl ("nieuwe serie" OR "nieuw seizoen" OR opnames) when:90d
+```
+
+Gebruik voor een feed de echte RSS/Atom-URL, niet de homepage. Alleen publieke HTTPS-feeds worden geaccepteerd; lokale/private adressen en redirects daarnaartoe worden geweigerd. Via **Wijzigen** kun je naam en zoekopdracht/feed veranderen en **Bron actief** uitzetten om te pauzeren. Bestaande artikelen blijven bewaard.
+
+De ingebouwde bronnen staan in `sources.json`; wijzigingen via de website worden als overrides in SQLite opgeslagen en hebben voorrang. Custom bronnen staan ook in SQLite. Je hoeft voor normaal bronbeheer geen bestand te wijzigen en de container niet te herstarten. Back-ups bevatten dus zowel je broninstellingen als beoordelingen.
+
+Er zijn standaard negen bronnen/zoekfeeds voor AVROTROS, RTL/Videoland, Talpa/SBS6, NPO/omroepen, Nederlandse producties bij streamers, producenten en vakmedia. Alleen AVROTROS is standaard een directe persfeed; de andere bronnen gebruiken gerichte Google Nieuws-zoekopdrachten. Directe feeds hebben de voorkeur als ze beschikbaar zijn. Google kan berichten vertraagd indexeren of missen. De app kan geen volledige dekking of voorsprong op iedereen garanderen. Besloten perslijsten en sociale media worden niet uitgelezen.
+
+## Starten op je VPS
+
+Installeer Docker Engine met de Compose-plugin en voer uit:
+
+```sh
+git clone https://github.com/mronion212/SeriesRadar.git
+cd SeriesRadar
+cp .env.example .env
+nano .env
+# Vul een sterk ADMIN_PASSWORD in.
+docker compose up -d --build
+docker compose logs -f --tail=50
+```
+
+Er wordt een image `seriesradar:local` gebouwd. De container draait als een gebruiker zonder rootrechten met een alleen-lezen bestandssysteem en een schrijfbaar databasevolume. De Compose-poort is alleen op localhost bereikbaar. Zet je HTTPS-reverseproxy ervoor, bijvoorbeeld Caddy op dezelfde VPS:
+
+```caddyfile
+series.jouwdomein.nl {
+    reverse_proxy 127.0.0.1:8080
+}
+```
+
+Laat DNS naar de VPS wijzen. Een reverseproxy in een andere container moet via een gedeeld Docker-netwerk naar `seriesradar:8080` verbinden, niet naar zijn eigen localhost. Gebruik HTTPS voor internettoegang: de app gebruikt HTTP Basic-login met de gegevens uit `.env`.
+
+Zonder domein kun je vanaf je computer een tunnel gebruiken:
+
+```sh
+ssh -L 8080:127.0.0.1:8080 gebruiker@je-vps
+```
+
+Open daarna http://localhost:8080 en log in.
+
+## Scans en instellingen
+
+Bij het starten voert de app een scan uit, daarna 30 minuten na afronding van iedere scan. De scan zelf duurt doorgaans seconden, maar trage bronnen kunnen de ronde verlengen. Geen aparte cron nodig. De container moet blijven draaien. Eén container per database gebruiken; de scheduler draait in hetzelfde proces. Handmatig scannen start geen overlappende tweede scan. De website haalt elke 10 seconden het bijgewerkte overzicht op.
+
+In `.env`:
+
+- `ADMIN_USER`: standaard `admin`.
+- `ADMIN_PASSWORD`: verplicht voor de Docker-configuratie.
+- `PORT`: lokale VPS-poort, standaard `8080`.
+- `SCAN_INTERVAL_SECONDS`: standaard `1800`, minimum `60`.
+
+De zoekfeeds vragen standaard tot 90 dagen terug. Google bepaalt welke resultaten en datums worden teruggegeven; de directe feed bepaalt haar eigen terugblik. De eerste scan importeert dus ook oudere aankondigingen. Gelijke koppen worden niet herhaald toegevoegd. Andere koppen over dezelfde serie blijven aparte artikelen; een uitgever kan bij een gewijzigde kop nog een dubbel artikel opleveren.
+
+## Data, updates en back-ups
+
+Alles staat in Docker-volume `radar-data`, in `radar.sqlite3`. Herstarten of opnieuw bouwen wist niets. Gebruik **geen** `docker compose down -v` als je de gegevens wilt bewaren. De upgrade van de eerste versie voegt kolommen toe en bewaart artikelen, notities en beoordelingen. De serieclassificatie wordt opnieuw uit de bestaande fragmenten afgeleid; eerder handmatig gekozen titels blijven behouden.
+
+Een consistente back-up maken terwijl de app draait:
+
+```sh
+docker compose exec seriesradar python -c "import sqlite3; s=sqlite3.connect('/data/radar.sqlite3'); d=sqlite3.connect('/data/backup.sqlite3'); s.backup(d); d.close(); s.close()"
+docker compose cp seriesradar:/data/backup.sqlite3 ./backup.sqlite3
+```
+
+Bewaar de back-up ook buiten de VPS. Bij herstel stop je de app en vervang je de database in het volume door de back-up. Verwijder eventuele oude WAL/SHM-bestanden vóór herstart; houd UID/GID 10001 als eigenaar.
+
+Bij een code-update:
+
+```sh
+git pull
+docker compose up -d --build
+```
+
+## Ontwikkelen en testen
+
+Python 3.13, uitsluitend standaardbibliotheek. Node is alleen nodig voor de optionele JavaScript-syntaxcontrole.
+
+```sh
+python app.py
+python -m unittest discover -s tests -v
+python tests/http_smoke.py
+node --check public/app.js
+```
+
+Lokaal zonder instellingen luistert de app op 127.0.0.1:8080 zonder login. Voor een netwerkbinding weigert hij te starten zonder wachtwoord. `python app.py --scan-once` voert één echte scan uit. `/health` controleert HTTP en SQLite; individuele bronfouten staan onder Bronnen.
+
+De tests dekken onder meer seizoenisolatie, titelherkenning, foutieve koppelingen, statusregels, bronvalidatie, duurzame broninstellingen, dubbele berichten en authenticatie. De GitHub-workflow test ook het bouwen en starten van de Docker-image. De lokale Docker-engine moet draaien om dat lokaal te kunnen reproduceren.
