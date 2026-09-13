@@ -15,6 +15,7 @@ FIELDS = [
     ('episodes','Aantal afleveringen','Uitgave'),('runtime','Speelduur per aflevering','Uitgave'),
     ('cast','Cast — acteur | personage','Makers'),('directors','Regie','Makers'),('writers','Scenario','Makers'),
     ('creators','Bedenkers / ontwikkelaars','Makers'),('producers','Producenten (personen)','Makers'),
+    ('presenters','Presentatoren','Makers'),('participants','Deelnemers','Makers'),
     ('official_url','Officiële seriepagina','Links'),('trailer_url','Trailer','Links'),('artwork_url','Poster / beeldmateriaal (rechten controleren)','Links'),
     ('imdb_id','Bestaand IMDb-ID','Links'),('tvdb_id','Bestaand TVDB-ID','Links'),
     ('episode_guide','Afleveringen — nummer | titel | datum','Aanvullend'),('notes','Bijzonderheden / invoernotities','Aanvullend'),
@@ -66,6 +67,7 @@ def extract(text, name, url):
         'distributors':[r'(?:een coproductie van|distributie door)\s*([^\n.]+)'],
         'cast':[r'(?:hoofdrollen worden gespeeld door|(?:hoofd)?rollen (?:worden )?vertolkt door|cast bestaat uit|hoofdrollen voor|met in de hoofdrollen|cast\s*:)\s*([^\n.]+)',r'([A-ZÀ-Ý][^.\n]{3,230}?) spelen de hoofdrollen'],
         'episodes':[r'\b(\d{1,3}) (?:afleveringen|delen)\b'],
+        'presenters':[r'(?:gepresenteerd door|presentatie (?:is )?in handen van|presentator(?:en)?\s*:)\s*([^\n.]+)'],
         'runtime':[r'(?:afleveringen van|speelduur(?: per aflevering)?(?: van|:)?)\s*(\d{1,3}\s*minuten)'],
         'countries':[r'(?:productieland(?:en)?|land van productie)\s*:\s*([^\n.]+)'],
         'languages':[r'(?:originele taal|gesproken taal)\s*:\s*([^\n.]+)',r'\b(Nederlandstalig)e?\b'],
@@ -88,14 +90,17 @@ def extract(text, name, url):
                 value='\n'.join(names)
             add(key,value,m.group(0))
             break
-    network=re.findall(r'(?:bij|op)\s+(AVROTROS|BNNVARA|KRO-NCRV|NPO\s*(?:Zapp|Start|Plus|[123])|SBS6|Net5|RTL\s*[4578]|VRT|Proximus)\b',text,re.I)
+    network=re.findall(r'(?:bij|op)\s+(AVROTROS|BNNVARA|KRO-NCRV|NPO\s*(?:Zapp|Start|Plus|[123])|SBS\s*6|Net\s*5|RTL\s*[4578]|VRT|Proximus)\b',text,re.I)
     platform_name=r'(?:Videoland|Netflix|Prime Video|Disney\+|HBO Max|SkyShowtime|NPO Start|NPO Plus|NLZIET|Streamz|KIJK)'
     platform_groups=re.findall(r'(?:bij|op|via)\s+('+platform_name+r'(?:\s+en\s+'+platform_name+r')*)(?!\w)',text,re.I)
     platform=[v for group in platform_groups for v in re.split(r'\s+en\s+',group,flags=re.I)]
     if network:add('networks','\n'.join(dict.fromkeys(network)),'Expliciete verwijzing: bij/op '+', '.join(dict.fromkeys(network)))
     if platform:add('platforms','\n'.join(dict.fromkeys(platform)),'Expliciete verwijzing: bij/op '+', '.join(dict.fromkeys(platform)))
     m=re.search(r'(?:vanaf|op)\s+(?:(?:maandag|dinsdag|woensdag|donderdag|vrijdag|zaterdag|zondag)\s+)?(\d{1,2}\s+(?:januari|februari|maart|april|mei|juni|juli|augustus|september|oktober|november|december)(?:\s+20\d{2})?)[^\n]{0,90}?(?:te zien|te streamen|beschikbaar|première)',text,re.I)
-    if m:add('release_date',m.group(1),m.group(0))
+    if m:
+        add('release_date',m.group(1),m.group(0))
+        year=re.search(r'\b20\d{2}\b',m.group(1))
+        if year:add('release_year',year.group(0),m.group(0))
     m=re.search(r'in\s+(20\d{2})\s+te (?:streamen|zien)',text,re.I)
     if m:add('release_year',m.group(1),m.group(0))
     numbers={'een':1,'twee':2,'drie':3,'vier':4,'vijf':5,'zes':6,'zeven':7,'acht':8,'negen':9,'tien':10,'elf':11,'twaalf':12}
@@ -103,7 +108,7 @@ def extract(text, name, url):
     if m:add('episodes',str(numbers[m.group(1).lower()]),m.group(0))
     m=re.search(r'(?:^|\n)Synopsis\s*:?\s+([^\n]+)',text,re.I)
     if m:add('synopsis',m.group(1)[:6000], 'Synopsis uit de bron; herschrijven voor inzending')
-    genres={'drama':r'dramaserie|drama-serie','Comedy':r'comedy|komedie|sitcom','Thriller':r'thrillerserie','Misdaad':r'misdaadserie','Documentaire':r'documentaireserie|docuserie','Reality':r'reality[- ]?(?:serie|programma|show|hit)|survivalprogramma|datingexperiment','Spelshow':r'gameshow|spelshow|spelprogramma|quiz','Animatie':r'animatieserie'}
+    genres={'drama':r'dramaserie|drama-serie','Comedy':r'comedy|komedie|sitcom','Thriller':r'thrillerserie','Misdaad':r'misdaadserie','Documentaire':r'documentaireserie|docuserie','Reality':r'reality[- ]?(?:serie|programma|show|hit)|survivalprogramma|datingexperiment|datingprogramma','Spelshow':r'gameshow|spelshow|spelprogramma|quiz','Animatie':r'animatieserie'}
     found=[k for k,p in genres.items() if re.search(r'\b(?:'+p+r')\b',text,re.I)]
     if found:add('genres','\n'.join(found),'Expliciete genrevermelding in artikel')
     if re.search(r'\b(?:gameshow|spelshow|spelprogramma|quiz)\b',text,re.I):add('format','Spelshow','Spelprogramma genoemd in artikel')

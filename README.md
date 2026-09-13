@@ -182,3 +182,20 @@ sudo docker compose -p aio --profile seriesradar up -d --build --no-deps seriesr
 ```
 
 Een GitHub-push bouwt en test in CI; bovenstaande opdracht werkt de draaiende VPS-container bij.
+# AI-onderzoek en bronactualiteit
+
+In **Beheer → Bronnen → AI-onderzoek** kun je een OpenAI API-sleutel opslaan.
+Deze staat in de serverdatabase (dus ook in databaseback-ups), wordt nooit in een dashboardantwoord teruggegeven en is uitsluitend via de beveiligde beheerroute te wijzigen.
+Als alternatief ondersteunt de app de servervariabele `OPENAI_API_KEY`; een opgeslagen sleutel heeft voorrang.
+API-gebruik wordt apart door OpenAI gefactureerd.
+
+Open een seriedossier, kies de productie/het seizoen en klik **Dossier onderzoeken met AI**.
+Het onderzoek gebruikt uitsluitend `gpt-5.6-luna`, `reasoning.effort=max`, Responses API en web search.
+Er is geen automatische terugval naar een ander model. De app draait maximaal één onderzoek tegelijk, op verzoek van een beheerder.
+Het onderzoek vraagt alle dossiervelden op en controleert maximaal tien geraadpleegde bronpagina's op titel, seizoen en het aangehaalde citaat.
+Niet bevestigde gegevens worden overgeslagen; handmatige velden houden voorrang. Een gevonden citaat bewijst niet dat de interpretatie klopt: resultaten blijven herkenbaar als AI-voorstel.
+Bij een fout blijven eerdere voorstellen staan. Na een herstart kan een onderbroken onderzoek opnieuw worden gestart.
+
+Publieke lezers zien de laatste scan, feedcontrole, eerste vondst en laatste succesvolle artikeluitlezing.
+Een mislukte nieuwe poging wist het tijdstip van de vorige succesvolle uitlezing niet.
+Google Nieuws-fragmenten worden expliciet als onvolledig gemarkeerd. Koppel een directe bron of gebruik AI-onderzoek om aanvullende bronnen te vinden.

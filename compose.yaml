@@ -9,6 +9,7 @@ services:
       ADMIN_USER: ${ADMIN_USER:-admin}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Vul ADMIN_PASSWORD in het .env bestand in}
       SCAN_INTERVAL_SECONDS: ${SCAN_INTERVAL_SECONDS:-1800}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
     volumes:
       - radar-data:/data
       - ./sources.json:/app/sources.json:ro

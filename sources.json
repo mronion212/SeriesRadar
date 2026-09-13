@@ -78,7 +78,8 @@
     "query": "site:tvgids.nl (serie OR seizoen OR drama OR comedy OR thriller OR misdaad OR documentaire OR docuserie OR reality OR \"reality programma\" OR realityshow OR realityhit OR survivalprogramma OR spelprogramma OR datingexperiment OR gameshow OR spelshow OR quiz OR partygame OR talentenjacht OR datingprogramma OR \"nieuw programma\" OR \"binnenkort te zien\" OR opnames OR première) when:180d",
     "kind": "Google Nieuws",
     "initial_urls": [
-      "https://www.tvgids.nl/binge-kijktip/4070132/undercover-lover"
+      "https://www.tvgids.nl/binge-kijktip/4070132/undercover-lover",
+      "https://www.tvgids.nl/nieuws/televisie/wil-je-met-me-bouwen-linda-amusement-datingprogramma-net-5-2026-09-14"
     ]
   },
   {

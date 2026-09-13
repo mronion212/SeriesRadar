@@ -64,6 +64,10 @@ def kind_of(text, season):
     return 'Onbekend'
 
 def tidy_name(value):
+    # Question-shaped programme titles may contain lowercase prepositions.
+    question = re.match(r'^((?:Wil|Kan|Kun|Wie|Wat|Waar|Hoe)\b[^?]{2,80}\?)', value.strip(), re.I)
+    if question:
+        return question.group(1).strip()
     value = value.strip(' \"\'‘’“”.,:;!?')
     value = re.sub(r'^(?:de|het)\s+(?=[A-ZÀ-Ý])','',value)
     value = re.split(r'\s+(?:aangekondigd|gestart|afgerond|binnenkort|van start|in de maak|in duistere|naar het boek|en nóg|en nog|over|met|bij|op|vanaf|in 20\d\d|seizoen|komt|krijgt|keert|toont|vertelt|overtreft|draait|duikt|speelt|laat|wordt|is|te zien|te streamen|bekend|onthuld)\b|[,!?]|\s+-\s+', value, maxsplit=1, flags=re.I)[0]
@@ -77,6 +81,9 @@ def tidy_name(value):
 def extract_name(a):
     """Require a title-shaped phrase immediately after a series noun."""
     text = headline(a)
+    quoted = re.search(r'\b' + SERIES_WORD + r'\s*:?\s+[‘’\'“\"]([^‘’\'“\"]{2,85})[‘’\'“\"]', text, re.I)
+    if quoted and quoted.group(1)[0].isupper():
+        return quoted.group(1).strip()
     patterns = [
         r'\b' + SERIES_WORD + r'\s*:?\s+[‘’\'“\"]([^‘’\'“\"]{2,85})[‘’\'“\"]',
         r'\b' + SERIES_WORD + r'\s+([^:]+)$',

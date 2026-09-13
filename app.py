@@ -23,12 +23,14 @@ from urllib.request import Request, urlopen, build_opener, HTTPRedirectHandler
 import xml.etree.ElementTree as ET
 import catalog as series_catalog
 import dossier
+import ai_research
 
 ROOT = Path(__file__).parent
 DB = Path(os.environ.get('DATA_DIR', str(ROOT / 'data'))) / 'radar.sqlite3'
 INTERVAL = max(60, int(os.environ.get('SCAN_INTERVAL_SECONDS', '1800')))
 LOCK = threading.Lock()
 WAKE = threading.Event()
+AI_LOCK = threading.Lock()
 PHASES = ['Te beoordelen', 'Aangekondigd', 'In productie', 'Release gepland', 'Gereleased']
 
 def now():
@@ -65,11 +67,18 @@ def init():
         CREATE TABLE IF NOT EXISTS article_facts (article_id TEXT PRIMARY KEY,facts TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS dossier_sources (series_id TEXT,scope TEXT,url TEXT,name TEXT,facts TEXT,checked TEXT,error TEXT,PRIMARY KEY(series_id,scope,url));
         CREATE TABLE IF NOT EXISTS enrichment_checks (key TEXT PRIMARY KEY,checked TEXT,error TEXT);
+        CREATE TABLE IF NOT EXISTS private_settings (key TEXT PRIMARY KEY,value TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS ai_runs (series_id TEXT,scope TEXT,status TEXT,checked TEXT,message TEXT,facts TEXT,PRIMARY KEY(series_id,scope));
         ''')
         columns = {r['name'] for r in c.execute('PRAGMA table_info(articles)')}
         for name, definition in [('production_kind', "TEXT DEFAULT 'Onbekend'"), ('season_number','INTEGER'), ('classification_reviewed','INTEGER DEFAULT 0'), ('excluded','INTEGER DEFAULT 0')]:
             if name not in columns:
                 c.execute(f'ALTER TABLE articles ADD COLUMN {name} {definition}')
+        c.execute("UPDATE ai_runs SET status='error',message='Onderzoek onderbroken door herstart; probeer opnieuw.' WHERE status='running'")
+        for table in ('enrichment_checks','dossier_sources'):
+            if 'last_success' not in {r['name'] for r in c.execute('PRAGMA table_info('+table+')')}:
+                c.execute('ALTER TABLE '+table+' ADD COLUMN last_success TEXT')
+                c.execute('UPDATE '+table+' SET last_success=checked WHERE error IS NULL')
 
 def clean(value):
     return re.sub(r'\s+', ' ', html.unescape(re.sub('<[^>]*>', ' ', value or ''))).strip()
@@ -232,11 +241,18 @@ def ingest(c, source, items):
             continue
         # Same headline across search feeds is one signal; later news remains separate.
         key = hashlib.sha256(clean(item['title']).casefold().encode()).hexdigest()[:24]
+        direct=c.execute('SELECT last_success FROM enrichment_checks WHERE key=?',('initial:'+item['url'],)).fetchone()
+        if direct and direct['last_success']:
+            prior=c.execute('SELECT id FROM articles WHERE title IN (?,?) LIMIT 1',(item['title'],item['title']+' - '+(item['publisher'] or source['name']))).fetchone()
+            if prior:key=prior['id']
         phase, reason = classify(item['title'], item['summary'])
         result = c.execute('''INSERT OR IGNORE INTO articles
           (id,title,url,summary,source,publisher,published,discovered,phase,reason)
           VALUES (?,?,?,?,?,?,?,?,?,?)''', (key, item['title'][:700], item['url'], item['summary'][:12000], source['id'], item['publisher'] or source['name'], publication_date(item['published']), now(), phase, reason))
         added += result.rowcount
+        if direct and direct['last_success']:
+            c.execute('UPDATE articles SET url=?,summary=? WHERE id=?',(item['url'],item['summary'][:12000],key))
+            c.execute('INSERT OR REPLACE INTO enrichment_checks (key,checked,error,last_success) VALUES (?,?,NULL,?)',('article:'+key,direct['last_success'],direct['last_success']))
         name=series_catalog.extract_name(item)
         if name:
             facts=dossier.extract(item['title']+'\n'+item['summary'],name,item['url'])
@@ -251,19 +267,62 @@ def get_catalog():
         imported=[dict(r) for r in c.execute('SELECT * FROM dossier_sources ORDER BY checked')]
         facts={r['article_id']:json.loads(r['facts']) for r in c.execute('SELECT * FROM article_facts')}
         checks={r['key']:dict(r) for r in c.execute('SELECT * FROM enrichment_checks')}
+        runs=[dict(r) for r in c.execute('SELECT * FROM ai_runs')]
+        source_times={r['id']:r['last_success'] for r in c.execute('SELECT id,last_success FROM sources')}
     result=series_catalog.catalog(articles)
     for group in result['series']:
         values={r['scope']:{'revision':r['revision'],'fields':json.loads(r['fields'])} for r in saved if r['series_id']==group['id']}
         candidates={}
         group['metadata_sources']=[]
+        for a in group['articles']:
+            check=checks.get('article:'+a['id'],{})
+            a['retrieval']={'attempted':check.get('checked'),'last_success':check.get('last_success'),'feed_checked':source_times.get(a['source']),'status':'failed' if check.get('error') else 'read' if check else 'feed_only'}
         for r in imported:
             if r['series_id']!=group['id']:continue
             candidates.setdefault(r['scope'],{}).update(json.loads(r['facts'] or '{}'))
-            group['metadata_sources'].append({k:r[k] for k in ('scope','url','checked','error')})
+            group['metadata_sources'].append({k:r[k] for k in ('scope','url','checked','error','last_success')})
+        group['ai_runs']=[]
+        for run in runs:
+            if run['series_id']!=group['id']:continue
+            candidates.setdefault(run['scope'],{}).update(json.loads(run['facts'] or '{}'))
+            group['ai_runs'].append({k:run[k] for k in ('scope','status','checked','message')})
         group['dossiers']=dossier.prepare(group,values,candidates,facts)
         group['tvdb_check']=checks.get('tvdb:'+group['id'])
     result['dossier_fields']=[{'key':k,'label':label,'section':section} for k,label,section in dossier.FIELDS]
     return result
+
+
+def ai_key():
+    with connect() as c:
+        row=c.execute("SELECT value FROM private_settings WHERE key='openai_api_key'").fetchone()
+    return row['value'] if row else os.environ.get('OPENAI_API_KEY','')
+
+
+def read_article_page(url,name):
+    public_url(url)
+    with build_opener(PublicRedirect()).open(Request(url,headers={'User-Agent':'SeriesRadar/1.0'}),timeout=25) as r:
+        raw=r.read(3_000_001)
+        if len(raw)>3_000_000:raise ValueError('Pagina groter dan 3 MB')
+        if 'html' not in r.headers.get('Content-Type',''):raise ValueError('Geen HTML-artikel')
+        parser=dossier.ArticleParser();parser.feed(decode_page(raw,r.headers.get_content_charset()))
+    return parser.text_for(name)
+
+
+def run_research(group,profile,key):
+    try:
+        facts,rejected=ai_research.research(key,group,profile,read_article_page)
+        stamp=now()
+        for field in facts.values():field['checked']=stamp
+        with connect() as c:
+            previous=c.execute('SELECT facts FROM ai_runs WHERE series_id=? AND scope=?',(group['id'],profile['scope'])).fetchone()
+            merged={**json.loads(previous['facts'] or '{}'),**facts} if previous else facts
+            c.execute("UPDATE ai_runs SET status='done',checked=?,message=?,facts=? WHERE series_id=? AND scope=?",
+                      (stamp,f'{len(facts)} brongecontroleerde voorstellen; {rejected} niet bevestigd. Controleer de inhoud.',json.dumps(merged),group['id'],profile['scope']))
+    except Exception as exc:
+        message=str(exc) if isinstance(exc,ValueError) else 'Onderzoek mislukt of bron niet bereikbaar. Probeer later opnieuw.'
+        with connect() as c:
+            c.execute("UPDATE ai_runs SET status='error',checked=?,message=? WHERE series_id=? AND scope=?",(now(),message[:250],group['id'],profile['scope']))
+    finally:AI_LOCK.release()
 
 def import_metadata(series_id,scope,name,url):
     public_url(url)
@@ -284,7 +343,8 @@ def import_metadata(series_id,scope,name,url):
             raise ValueError('Deze bron noemt een ander seizoen. Kies het bijbehorende seizoen in het dossier.')
         facts=dossier.tvdb_facts(markup,name,url) if urlparse(url).hostname in ('thetvdb.com','www.thetvdb.com') else dossier.extract(text,name,url)
         with connect() as c:
-            c.execute('INSERT OR REPLACE INTO dossier_sources VALUES (?,?,?,?,?,?,NULL)',(series_id,scope,url,name,json.dumps(facts),now()))
+            stamp=now()
+            c.execute('INSERT OR REPLACE INTO dossier_sources (series_id,scope,url,name,facts,checked,error,last_success) VALUES (?,?,?,?,?,?,NULL,?)',(series_id,scope,url,name,json.dumps(facts),stamp,stamp))
         return facts
     except Exception as exc:
         with connect() as c:
@@ -300,7 +360,8 @@ def due_check(key, days=1):
 
 def record_check(key,error=None):
     with connect() as c:
-        c.execute('INSERT OR REPLACE INTO enrichment_checks VALUES (?,?,?)',(key,now(),error))
+        stamp=now()
+        c.execute('INSERT INTO enrichment_checks (key,checked,error,last_success) VALUES (?,?,?,?) ON CONFLICT(key) DO UPDATE SET checked=excluded.checked,error=excluded.error,last_success=COALESCE(excluded.last_success,enrichment_checks.last_success)',(key,stamp,error,None if error else stamp))
 
 
 def enrich_articles(limit=8):
@@ -310,7 +371,9 @@ def enrich_articles(limit=8):
     count=0
     for a in rows:
         if count>=limit:break
-        if urlparse(a['url']).hostname=='news.google.com':continue
+        if urlparse(a['url']).hostname=='news.google.com':
+            if due_check('article:'+a['id']):record_check('article:'+a['id'],'Alleen Google Nieuws-fragment; directe bron nog niet beschikbaar. Gebruik AI-onderzoek of koppel de directe link.')
+            continue
         name=a.get('series_title') or series_catalog.extract_name(a)
         if not name or not due_check('article:'+a['id']):continue
         count+=1
@@ -431,21 +494,24 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == '/api/dashboard':
             result=get_catalog()
+            with connect() as c:
+                meta=dict(c.execute("SELECT key,value FROM meta WHERE key IN ('last_finished','next_scan')").fetchall())
             # Public readers see catalogued productions, never the review queue,
             # internal notes, source configuration or diagnostic errors.
             for group in result['series']:
-                group.pop('metadata_sources',None)
+                group['metadata_sources']=[{'scope':s['scope'],'url':s['url'],'checked':s['checked'],'last_success':s['last_success'],'status':'failed' if s['error'] else 'read'} for s in group['metadata_sources']]
+                group.pop('ai_runs',None)
                 group.pop('tvdb_check',None)
-                group['articles']=[{k:a[k] for k in ('id','title','url','summary','publisher','published','discovered','kind','season','status') if k in a} for a in group['articles']]
+                group['articles']=[{k:a[k] for k in ('id','title','url','summary','publisher','published','discovered','kind','season','status','retrieval') if k in a} for a in group['articles']]
                 for profile in group['dossiers']:
                     profile['fields'].pop('notes',None)
             result['dossier_fields']=[f for f in result['dossier_fields'] if f['key']!='notes']
-            return self.respond(200, {'series':result['series'],'dossier_fields':result['dossier_fields'],'inbox':[],'ignored':[],'sources':[],'meta':{},'scanning':False,'interval':INTERVAL})
+            return self.respond(200, {'series':result['series'],'dossier_fields':result['dossier_fields'],'inbox':[],'ignored':[],'sources':[],'meta':meta,'scanning':LOCK.locked(),'interval':INTERVAL})
         if path == '/api/admin/dashboard':
             with connect() as c:
                 statuses = {r['id']: dict(r) for r in c.execute('SELECT * FROM sources')}
                 meta = dict(c.execute('SELECT key,value FROM meta').fetchall())
-            return self.respond(200, {**get_catalog(), 'sources': [{**statuses.get(s['id'], {}), **s} for s in sources()], 'meta': meta, 'scanning': LOCK.locked(), 'interval': INTERVAL})
+            return self.respond(200, {**get_catalog(), 'ai':{'configured':bool(ai_key()),'busy':AI_LOCK.locked(),'model':ai_research.MODEL,'reasoning':ai_research.EFFORT}, 'sources': [{**statuses.get(s['id'], {}), **s} for s in sources()], 'meta': meta, 'scanning': LOCK.locked(), 'interval': INTERVAL})
         files = {'/': ('index.html', 'text/html; charset=utf-8'), '/admin': ('index.html', 'text/html; charset=utf-8'), '/admin/': ('index.html', 'text/html; charset=utf-8'), '/app.js': ('app.js', 'text/javascript; charset=utf-8'), '/style.css': ('style.css', 'text/css; charset=utf-8'), '/favicon.svg': ('favicon.svg', 'image/svg+xml')}
         if path in files:
             name, kind = files[path]
@@ -465,14 +531,30 @@ class Handler(BaseHTTPRequestHandler):
             data = json.loads(self.rfile.read(size))
             if not isinstance(data, dict):
                 raise ValueError('Ongeldige invoer')
+            if self.path == '/api/ai/settings':
+                key=data.get('api_key')
+                if not isinstance(key,str) or not 20<=len(key.strip())<=300 or not key.strip().startswith('sk-'):raise ValueError('Vul een geldige OpenAI API-sleutel in.')
+                with connect() as c:c.execute("INSERT OR REPLACE INTO private_settings VALUES ('openai_api_key',?)",(key.strip(),))
+                return self.respond(200,{'ok':True})
             if self.path == '/api/scan':
                 WAKE.set()
                 return self.respond(202, {'ok': True})
-            if self.path in ('/api/dossier','/api/dossier/import','/api/dossier/check-tvdb'):
+            if self.path in ('/api/dossier','/api/dossier/import','/api/dossier/check-tvdb','/api/dossier/research'):
                 group=next((g for g in get_catalog()['series'] if g['id']==data.get('series_id')),None)
                 if not group: return self.respond(404,{'error':'Serie niet gevonden'})
                 profile=next((p for p in group['dossiers'] if p['scope']==data.get('scope')),None)
                 if not profile:raise ValueError('Selecteer een bestaande productie of seizoen')
+                if self.path.endswith('/research'):
+                    key=ai_key()
+                    if not key:return self.respond(400,{'error':'Stel eerst de OpenAI API-sleutel in bij Bronnen.'})
+                    if not AI_LOCK.acquire(blocking=False):return self.respond(409,{'error':'Er loopt al een AI-onderzoek.'})
+                    try:
+                        with connect() as c:
+                            c.execute("INSERT INTO ai_runs VALUES (?,?,'running',?,'Onderzoek bezig…','{}') ON CONFLICT(series_id,scope) DO UPDATE SET status='running',checked=excluded.checked,message=excluded.message",(group['id'],profile['scope'],now()))
+                        threading.Thread(target=run_research,args=(group,profile,key),daemon=True).start()
+                    except Exception:
+                        AI_LOCK.release();raise
+                    return self.respond(202,{'ok':True})
                 if self.path.endswith('/check-tvdb'):
                     if not LOCK.acquire(blocking=False):return self.respond(409,{'error':'Er loopt een scan. Probeer het na de scan opnieuw.'})
                     try:

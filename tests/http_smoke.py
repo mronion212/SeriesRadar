@@ -6,6 +6,7 @@ from pathlib import Path
 import sys
 import tempfile
 import threading
+import time
 from urllib.request import Request,urlopen
 from urllib.error import HTTPError
 from unittest.mock import patch
@@ -35,10 +36,15 @@ with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ,{'ADMIN_U
         assert call('/api/dashboard',auth=False)[0]==200
         assert call('/api/admin/dashboard',auth=False)[0]==401
         assert call('/admin',auth=False)[0]==401
-        for endpoint in ('/api/scan','/api/article','/api/dossier','/api/dossier/import','/api/dossier/check-tvdb','/api/source','/api/source/test'):
+        for endpoint in ('/api/ai/settings','/api/dossier/research','/api/scan','/api/article','/api/dossier','/api/dossier/import','/api/dossier/check-tvdb','/api/source','/api/source/test'):
             assert call(endpoint,{},auth=False)[0]==401
         assert call('/health',auth=False)[0]==200
         assert call('/api/scan',{},csrf=False)[0]==403
+        assert call('/api/ai/settings',{'api_key':'sk-test-key-not-a-real-secret'},csrf=False)[0]==403
+        assert call('/api/ai/settings',{'api_key':'sk-test-key-not-a-real-secret'})[0]==200
+        assert call('/api/admin/dashboard')[1]['ai']['configured'] is True
+        assert 'sk-test-key-not-a-real-secret' not in json.dumps(call('/api/admin/dashboard')[1])
+        assert 'sk-test-key-not-a-real-secret' not in json.dumps(call('/api/dashboard',auth=False)[1])
         assert call('/api/article',{})[0]==400
         source={'name':'Integration feed','mode':'search','value':'"Nederlandse serie" when:90d','enabled':False}
         status,result=call('/api/source',source)
@@ -57,6 +63,20 @@ with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ,{'ADMIN_U
         assert public['inbox']==[] and public['ignored']==[] and public['sources']==[]
         assert 'notes' not in public['series'][0]['articles'][0]
         assert 'Private dossier note' not in json.dumps(public)
+        app.record_check('article:'+row['id'])
+        first=call('/api/dashboard',auth=False)[1]['series'][0]['articles'][0]['retrieval']['last_success']
+        app.record_check('article:'+row['id'],'temporary failure')
+        retrieval=call('/api/dashboard',auth=False)[1]['series'][0]['articles'][0]['retrieval']
+        assert retrieval['last_success']==first and retrieval['status']=='failed'
+        with patch.object(app.ai_research,'research',return_value=({'cast':{'value':'AI cast','source_url':'https://example.org/test','evidence':'Cast','origin':'ai'},'episodes':{'value':'8','source_url':'https://example.org/test','evidence':'Acht afleveringen','origin':'ai'}},0)):
+            assert call('/api/dossier/research',{'series_id':group['id'],'scope':profile['scope']})[0]==202
+            for _ in range(100):
+                if not app.AI_LOCK.locked():break
+                time.sleep(.02)
+            assert not app.AI_LOCK.locked()
+        researched=call('/api/dashboard',auth=False)[1]['series'][0]['dossiers'][0]['fields']
+        assert researched['cast']['value']=='Anna de Vries | Noor'
+        assert researched['episodes']['value']=='8' and researched['episodes']['origin']=='ai'
         with patch.dict(os.environ,{'ADMIN_PASSWORD':''}):
             assert call('/api/dashboard',auth=False)[0]==200
             assert call('/api/admin/dashboard',auth=False)[0]==503
