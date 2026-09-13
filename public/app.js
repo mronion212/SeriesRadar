@@ -69,14 +69,15 @@ function renderDossier(){
  if(!profile)return;
  const fields=profile.fields;
  const run=group.ai_runs?.find(r=>r.scope===dossierScope);
+ if($('research-detail').open&&researchContext?.series_id===group.id){const externalRun=group.ai_runs?.find(r=>r.scope===researchContext.scope);if(externalRun)$('research-import-status').textContent=externalRun.message+' · '+clock(externalRun.checked);}
  $('research-dossier').disabled=!!state.ai?.busy||!state.ai?.configured;
- $('research-status').textContent=run?`${run.message} · ${clock(run.checked)}`:state.ai?.configured?'GPT-5.6 Luna · max reasoning. Onderzoekt alle velden voor deze productie met broncontrole.':'Stel je OpenAI API-sleutel in bij Bronnen om dit dossier te onderzoeken.';
+ $('research-status').textContent=run?`${run.message} · ${clock(run.checked)}`:state.ai?.configured?'Onderzoek zonder API gebruikt je eigen chat. De betaalde API-route gebruikt GPT-5.6 Luna · max reasoning.':'Gebruik Onderzoek zonder API met je ChatGPT-abonnement. Een API-sleutel is daarvoor niet nodig.';
  const tvdbId=fields.tvdb_id?.value;
  $('dossier-tvdb').href=tvdbId?'https://thetvdb.com/dereferrer/series/'+encodeURIComponent(tvdbId):'https://thetvdb.com/search?query='+encodeURIComponent(group.name);
  $('dossier-tvdb').textContent=tvdbId?'Bestaand op TVDB · '+tvdbId+' ↗':'TVDB niet bevestigd · handmatig zoeken ↗';
  $('dossier-tvdb-status').textContent=tvdbId?'Bestaand TVDB-ID vastgelegd.':group.tvdb_check?((group.tvdb_check.error||'Controle afgerond')+' · '+clock(group.tvdb_check.checked)):'TVDB nog niet gecontroleerd. Automatische controle volgt tijdens scans.';
 
- const renderField=f=>{const v=fields[f.key];return `<div class="metadata-value ${v?.value?'':'not-known'}"><dt>${esc(f.label)}</dt><dd>${v?.value?esc(v.value).replaceAll('\n','<br>'):'Nog onbekend'}</dd>${v?.value?`<div class="fact-source"><span>${v.origin==='manual'?'Handmatig beoordeeld':v.origin==='ai'?'AI-voorstel · inhoud controleren':'Automatisch voorstel'}</span>${v.checked?`<span>Bron gelezen: ${clock(v.checked)}</span>`:''}${v.source_url?`<a href="${esc(v.source_url)}" target="_blank" rel="noopener noreferrer" title="${esc(v.evidence||'Bron bekijken')}">Bron ↗</a>`:'<span>Bron ontbreekt</span>'}</div>`:''}</div>`;};
+ const renderField=f=>{const v=fields[f.key];return `<div class="metadata-value ${v?.value?'':'not-known'}"><dt>${esc(f.label)}</dt><dd>${v?.value?esc(v.value).replaceAll('\n','<br>'):'Nog onbekend'}</dd>${v?.value?`<div class="fact-source"><span>${v.origin==='manual'?'Handmatig beoordeeld':['ai','external_ai'].includes(v.origin)?'AI-voorstel · inhoud controleren':'Automatisch voorstel'}</span>${v.checked?`<span>Bron gelezen: ${clock(v.checked)}</span>`:''}${v.source_url?`<a href="${esc(v.source_url)}" target="_blank" rel="noopener noreferrer" title="${esc(v.evidence||'Bron bekijken')}">Bron ↗</a>`:'<span>Bron ontbreekt</span>'}</div>`:''}</div>`;};
  $('dossier-metadata').innerHTML=`<div class="dossier-summary"><div>${badge(profile.status)}<h3>${esc(productionLabel(profile))}</h3><p>${profile.filled} van ${profile.total} basisvelden ingevuld. ${profile.missing.length} nog onbekend.</p></div><div class="completion-number">${profile.filled}<span>/${profile.total}</span></div></div>`+['Basis','Uitgave','Links','Aanvullend'].map(section=>`<section class="metadata-section"><h3>${section}</h3><dl class="metadata-grid">${state.dossier_fields.filter(f=>f.section===section).map(renderField).join('')}</dl></section>`).join('');
  $('dossier-people').innerHTML=`<p class="explanation">Cast en crew voor ${esc(productionLabel(profile).toLowerCase())}. Rollen die niet bevestigd zijn, blijven leeg.</p><dl class="people-grid">${state.dossier_fields.filter(f=>f.section==='Makers').map(renderField).join('')}</dl>`;
  $('dossier-productions').innerHTML=group.productions.map(p=>`<div class="production-row"><div><h3>${esc(productionLabel(p))}</h3>${isAdmin?`<button class="evidence-button" data-article="${p.status_article}">Onderbouwing: ${esc(p.evidence)}</button>`:`<p>Onderbouwing: ${esc(p.evidence)}</p>`}</div><div>${badge(p.status)}</div></div>`).join('');
@@ -156,3 +157,50 @@ $('check-tvdb').onclick=async e=>{e.target.disabled=true;try{await request('/api
 
 $('ai-settings').onsubmit=async e=>{e.preventDefault();e.submitter.disabled=true;try{await request('/api/ai/settings',{api_key:$('ai-key').value});$('ai-key').value='';$('ai-settings-status').textContent='Sleutel opgeslagen. Open een dossier om onderzoek te starten.';await load();}catch(err){$('ai-settings-status').textContent=err.message;}finally{e.submitter.disabled=false;}};
 $('research-dossier').onclick=async e=>{e.target.disabled=true;try{await request('/api/dossier/research',{series_id:dossierId,scope:dossierScope});await load();}catch(err){$('research-status').textContent=err.message;e.target.disabled=false;}};
+
+let researchContext=null;
+function parseResearchResult(raw){
+ const text=raw.trim().replace(/^```(?:json)?\s*/i,'').replace(/\s*```$/,'');
+ let result;try{result=JSON.parse(text);}catch{throw new Error('Plak het volledige JSON-antwoord van ChatGPT. De tekst is geen geldige JSON.');}
+ if(!result||typeof result!=='object'||Array.isArray(result)||!Array.isArray(result.facts))throw new Error('Het antwoord moet een JSON-object met series_id, scope, title en facts zijn.');
+ return result;
+}
+async function submitResearch(result){
+ const response=await request('/api/dossier/research-import',result);
+ await load();return response;
+}
+$('research-external').onclick=async e=>{
+ e.target.disabled=true;
+ try{
+  researchContext=await request('/api/dossier/research-package',{series_id:dossierId,scope:dossierScope});
+  const selectedProfile=state.series.find(g=>g.id===researchContext.series_id)?.dossiers.find(p=>p.scope===researchContext.scope);
+  $('research-context').textContent=researchContext.title+(selectedProfile?' · '+productionLabel(selectedProfile):'');
+  $('research-prompt').value=researchContext.prompt;$('research-result').value='';
+  $('research-import-status').textContent=researchContext.research_status?.message||'';
+  $('research-tools-status').textContent=typeof document.modelContext?.registerTool==='function'?'Deze browser ondersteunt websitefuncties; beschikbaarheid hangt ook af van je gekozen model en account.':'Deze browser biedt geen websitefuncties. De kopieer/import-route werkt wel.';
+  $('research-detail').showModal();
+ }catch(err){$('research-status').textContent=err.message;}finally{e.target.disabled=false;}
+};
+$('copy-research').onclick=async()=>{
+ try{await navigator.clipboard.writeText($('research-prompt').value);$('research-import-status').textContent='Opdracht gekopieerd. Plak deze in je ChatGPT-chat.';}
+ catch{$('research-prompt').focus();$('research-prompt').select();$('research-import-status').textContent='Kopieer de geselecteerde opdracht met Ctrl+C.';}
+};
+$('research-import-form').onsubmit=async e=>{
+ e.preventDefault();e.submitter.disabled=true;
+ try{
+  const result=parseResearchResult($('research-result').value);
+  if(!researchContext||result.series_id!==researchContext.series_id||result.scope!==researchContext.scope||result.title!==researchContext.title)throw new Error('Dit antwoord hoort bij een ander dossier of seizoen. Gebruik de opdracht uit dit venster.');
+  const response=await submitResearch(result);$('research-import-status').textContent=response.message;
+ }catch(err){$('research-import-status').textContent=err.message;}finally{e.submitter.disabled=false;}
+};
+
+if(isAdmin&&typeof document.modelContext?.registerTool==='function'){
+ const targetSchema={type:'object',properties:{series_id:{type:'string'},scope:{type:'string'}},required:['series_id','scope'],additionalProperties:false};
+ const factSchema={type:'object',properties:{field:{type:'string'},value:{type:'string'},source_url:{type:'string'},evidence:{type:'string'}},required:['field','value','source_url','evidence'],additionalProperties:false};
+ const researchTools=[
+  {name:'list_research_dossiers',description:'Lees beschikbare SeriesRadar-seriedossiers en productie/seizoen-IDs. Geeft ook het geselecteerde dossier terug. Geen wijzigingen.',inputSchema:{type:'object',properties:{},additionalProperties:false},annotations:{readOnlyHint:true,untrustedContentHint:true},execute:async()=>{await load();return {selected:{series_id:dossierId,scope:dossierScope},series:state.series.map(g=>({series_id:g.id,title:g.name,productions:g.dossiers.map(p=>({scope:p.scope,kind:p.kind,season:p.season}))}))};}},
+  {name:'get_research_dossier',description:'Lees de onderzoeksopdracht, bronlinks en actuele onderzoeksstatus voor één SeriesRadar-productie. Intern notitieveld en inloggegevens worden niet gedeeld. Gebruik deze functie opnieuw om een gestarte broncontrole te volgen.',inputSchema:targetSchema,annotations:{readOnlyHint:true,untrustedContentHint:true},execute:async input=>request('/api/dossier/research-package',input)},
+  {name:'submit_research_result',description:'Voeg brononderbouwde AI-voorstellen toe aan het opgegeven SeriesRadar-dossier. Vereist toestemming van de gebruiker voor het opslaan. Start asynchrone broncontrole zonder OpenAI API: alleen bevestigde citaten worden opgeslagen en publiek zichtbaar als AI-voorstel; handmatige gegevens houden voorrang. Een accepted/running antwoord is nog geen voltooiing: controleer daarna get_research_dossier.',inputSchema:{type:'object',properties:{...targetSchema.properties,title:{type:'string'},facts:{type:'array',minItems:1,maxItems:60,items:factSchema}},required:['series_id','scope','title','facts'],additionalProperties:false},annotations:{readOnlyHint:false,destructiveHint:false,untrustedContentHint:true},execute:submitResearch}
+ ];
+ for(const tool of researchTools){try{Promise.resolve(document.modelContext.registerTool(tool)).catch(()=>{});}catch{}}
+}

@@ -308,9 +308,12 @@ def read_article_page(url,name):
     return parser.text_for(name)
 
 
-def run_research(group,profile,key):
+def run_research(group,profile,key=None,proposals=None):
     try:
-        facts,rejected=ai_research.research(key,group,profile,read_article_page)
+        if proposals is None:
+            facts,rejected=ai_research.research(key,group,profile,read_article_page)
+        else:
+            facts,rejected=ai_research.verify_proposals(proposals,group,profile,read_article_page)
         stamp=now()
         for field in facts.values():field['checked']=stamp
         with connect() as c:
@@ -539,11 +542,24 @@ class Handler(BaseHTTPRequestHandler):
             if self.path == '/api/scan':
                 WAKE.set()
                 return self.respond(202, {'ok': True})
-            if self.path in ('/api/dossier','/api/dossier/import','/api/dossier/check-tvdb','/api/dossier/research'):
+            if self.path in ('/api/dossier','/api/dossier/import','/api/dossier/check-tvdb','/api/dossier/research','/api/dossier/research-package','/api/dossier/research-import'):
                 group=next((g for g in get_catalog()['series'] if g['id']==data.get('series_id')),None)
                 if not group: return self.respond(404,{'error':'Serie niet gevonden'})
                 profile=next((p for p in group['dossiers'] if p['scope']==data.get('scope')),None)
                 if not profile:raise ValueError('Selecteer een bestaande productie of seizoen')
+                if self.path.endswith('/research-package'):
+                    return self.respond(200,ai_research.research_package(group,profile))
+                if self.path.endswith('/research-import'):
+                    if data.get('title')!=group['name']:raise ValueError('Dit resultaat hoort bij een andere serietitel. Kopieer de actuele onderzoeksopdracht.')
+                    proposals=ai_research.validate_proposals(data.get('facts'))
+                    if not AI_LOCK.acquire(blocking=False):return self.respond(409,{'error':'Er loopt al een onderzoek of broncontrole. Wacht tot dit klaar is.'})
+                    try:
+                        with connect() as c:
+                            c.execute("INSERT INTO ai_runs VALUES (?,?,'running',?,'Bronnen van geïmporteerd onderzoek controleren…','{}') ON CONFLICT(series_id,scope) DO UPDATE SET status='running',checked=excluded.checked,message=excluded.message",(group['id'],profile['scope'],now()))
+                        threading.Thread(target=run_research,args=(group,profile,None,proposals),daemon=True).start()
+                    except Exception:
+                        AI_LOCK.release();raise
+                    return self.respond(202,{'ok':True,'status':'running','message':'Broncontrole gestart; voorstellen worden pas na controle opgeslagen. Lees de onderzoeksstatus opnieuw voor het resultaat.'})
                 if self.path.endswith('/research'):
                     key=ai_key()
                     if not key:return self.respond(400,{'error':'Stel eerst de OpenAI API-sleutel in bij Bronnen.'})

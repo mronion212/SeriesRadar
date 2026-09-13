@@ -34,3 +34,15 @@ class ResearchTests(unittest.TestCase):
         self.assertEqual(facts['release_date']['value'],'14 september 2026')
         self.assertEqual(facts['networks']['value'],'NET 5')
         self.assertEqual(catalog.phase_of(text)[0],'Release gepland')
+
+    def test_external_rejects_wrong_season_and_unreadable_source(self):
+        proposals=[{'field':'episodes','value':'8','source_url':'https://example.org','evidence':'Teststad telt acht afleveringen.'}]
+        result,rejected=ai_research.verify_proposals(proposals,{'name':'Teststad'},{'season':1},lambda *_:'Seizoen 2. Teststad telt acht afleveringen.')
+        self.assertEqual((result,rejected),({},1))
+        def unavailable(*_):raise OSError('Unavailable')
+        self.assertEqual(ai_research.verify_proposals(proposals,{'name':'Teststad'},{'season':1},unavailable),({},1))
+
+    def test_external_rejects_internal_fields_and_bad_links(self):
+        for field,url in [('notes','https://example.org'),('cast','javascript:alert(1)')]:
+            with self.assertRaises(ValueError):
+                ai_research.validate_proposals([{'field':field,'value':'Test','source_url':url,'evidence':'Test'}])

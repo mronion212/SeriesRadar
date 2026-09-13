@@ -184,6 +184,19 @@ sudo docker compose -p aio --profile seriesradar up -d --build --no-deps seriesr
 Een GitHub-push bouwt en test in CI; bovenstaande opdracht werkt de draaiende VPS-container bij.
 # AI-onderzoek en bronactualiteit
 
+## Zonder API-tegoed
+
+Kies in Beheer bij een serie **Onderzoek zonder API**. Dit biedt twee routes:
+
+1. **ChatGPT-web:** kopieer de volledige onderzoeksopdracht, voer deze in je eigen chat uit en plak het JSON-antwoord in het importformulier. Kies Luna/max in je chat als die instellingen beschikbaar zijn; SeriesRadar kan de modelkeuze niet afdwingen.
+2. **ChatGPT/Codex-desktop:** open de beheerpagina in de ingebouwde browser, log in en vraag de agent het geselecteerde dossier te onderzoeken en voorstellen op te slaan. De pagina biedt `list_research_dossiers`, `get_research_dossier` en `submit_research_result`. Deze functies zijn alleen in beheer beschikbaar en gebruiken de bestaande authenticatie. De officiële documentatie noemt Sol/Terra voor WebMCP; Luna heeft deze functie momenteel uitgeschakeld. Gebruik voor Luna route 1.
+
+Beide routes gebruiken geen OpenAI API-aanroep vanuit SeriesRadar. De limieten van je ChatGPT/Codex-abonnement blijven gelden; onbeperkt gebruik wordt niet gegarandeerd.
+De server controleert de titel en het seizoen van het importpakket, leest de publieke bronpagina's opnieuw en controleert citaten. Alleen bevestigde voorstellen worden opgeslagen, met een ophaaldatum en `external_ai` als herkomst. Handmatige velden blijven leidend. Onderzoek zonder bevestigde feiten wijzigt bestaande feiten niet.
+Een antwoord `running` betekent dat de broncontrole nog loopt. De interface ververst de status; een agent kan `get_research_dossier` opnieuw gebruiken. Een broncontrole bewijst niet dat de interpretatie van een citaat correct is.
+
+## Optioneel met API-tegoed
+
 In **Beheer → Bronnen → AI-onderzoek** kun je een OpenAI API-sleutel opslaan.
 Deze staat in de serverdatabase (dus ook in databaseback-ups), wordt nooit in een dashboardantwoord teruggegeven en is uitsluitend via de beveiligde beheerroute te wijzigen.
 Als alternatief ondersteunt de app de servervariabele `OPENAI_API_KEY`; een opgeslagen sleutel heeft voorrang.
