@@ -9,3 +9,5 @@
 /* Fluid workspace: use ultrawide space while keeping cards and text readable. */
 @media(min-width:1251px){main{max-width:none;margin-right:0;padding-inline:clamp(28px,2.3vw,72px)}.series-grid{grid-template-columns:repeat(auto-fit,minmax(290px,1fr))}.series-card{min-width:0;max-width:520px}.filters .search-label{max-width:760px}}
 @media(min-width:1800px){.dossier{width:min(1500px,88vw)}#dossier-metadata{display:grid;grid-template-columns:1fr 1fr;gap:24px;align-items:start}#dossier-metadata>.dossier-summary{grid-column:1/-1;margin-bottom:0}.metadata-section{min-width:0}.metadata-value dd{overflow-wrap:anywhere}.dossier-summary p{max-width:70ch}.metadata-editor{width:min(1100px,90vw)}}
+
+body:not(.admin-mode) .admin-only{display:none!important}#access-link{font-size:13px;text-decoration:none;padding:12px 8px}.admin-mode .edition{color:#a71920;font-weight:600}

@@ -32,36 +32,48 @@ with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ,{'ADMIN_U
         except HTTPError as exc:
             return exc.code,None
     try:
-        assert call('/api/dashboard',auth=False)[0]==401
+        assert call('/api/dashboard',auth=False)[0]==200
+        assert call('/api/admin/dashboard',auth=False)[0]==401
+        assert call('/admin',auth=False)[0]==401
+        for endpoint in ('/api/scan','/api/article','/api/dossier','/api/dossier/import','/api/dossier/check-tvdb','/api/source','/api/source/test'):
+            assert call(endpoint,{},auth=False)[0]==401
         assert call('/health',auth=False)[0]==200
         assert call('/api/scan',{},csrf=False)[0]==403
         assert call('/api/article',{})[0]==400
         source={'name':'Integration feed','mode':'search','value':'"Nederlandse serie" when:90d','enabled':False}
         status,result=call('/api/source',source)
         assert status==200
-        saved=next(s for s in call('/api/dashboard')[1]['sources'] if s['id']==result['id'])
+        saved=next(s for s in call('/api/admin/dashboard')[1]['sources'] if s['id']==result['id'])
         assert saved['enabled'] is False
         with app.connect() as c:
             app.ingest(c,{'id':'test','name':'Test'},[{'title':"Nieuwe Nederlandse serie 'Teststad' aangekondigd",'url':'https://example.org/test','summary':'','published':None,'publisher':'Test'}])
-        group=call('/api/dashboard')[1]['series'][0]
+        group=call('/api/admin/dashboard')[1]['series'][0]
         row=group['articles'][0]
         profile=group['dossiers'][0]
-        update={'series_id':group['id'],'scope':profile['scope'],'revision':profile['revision'],'fields':{'cast':{'value':'Anna de Vries | Noor','source_url':'https://example.org/test','evidence':'Cast credits'}}}
+        update={'series_id':group['id'],'scope':profile['scope'],'revision':profile['revision'],'fields':{'notes':{'value':'Private dossier note'},'cast':{'value':'Anna de Vries | Noor','source_url':'https://example.org/test','evidence':'Cast credits'}}}
         assert call('/api/dossier',update)[0]==200
         assert call('/api/dossier',update)[0]==409
+        public=call('/api/dashboard',auth=False)[1]
+        assert public['inbox']==[] and public['ignored']==[] and public['sources']==[]
+        assert 'notes' not in public['series'][0]['articles'][0]
+        assert 'Private dossier note' not in json.dumps(public)
+        with patch.dict(os.environ,{'ADMIN_PASSWORD':''}):
+            assert call('/api/dashboard',auth=False)[0]==200
+            assert call('/api/admin/dashboard',auth=False)[0]==503
+            assert call('/api/scan',{},auth=False)[0]==503
         app.init()
-        dossier=call('/api/dashboard')[1]['series'][0]['dossiers'][0]
+        dossier=call('/api/admin/dashboard')[1]['series'][0]['dossiers'][0]
         assert dossier['fields']['cast']['value']=='Anna de Vries | Noor'
         assert dossier['fields']['cast']['origin']=='manual'
         data={'id':row['id'],'series_title':'Teststad','production_kind':'Nieuw seizoen','season_number':2,'phase':'In productie','notes':'Persisted note','tvdb':0,'excluded':0}
         assert call('/api/article',data)[0]==200
-        updated=call('/api/dashboard')[1]['series'][0]
+        updated=call('/api/admin/dashboard')[1]['series'][0]
         assert updated['productions'][0]['season']==2
         assert updated['productions'][0]['status']=='In productie'
         data['excluded']=1
         assert call('/api/article',data)[0]==200
-        assert not call('/api/dashboard')[1]['series']
-        assert call('/api/dashboard')[1]['ignored'][0]['notes']=='Persisted note'
+        assert not call('/api/admin/dashboard')[1]['series']
+        assert call('/api/admin/dashboard')[1]['ignored'][0]['notes']=='Persisted note'
         print('HTTP integration OK: login, CSRF, sources, grouping, review, ignore, persistence')
     finally:
         server.shutdown()

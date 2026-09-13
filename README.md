@@ -143,7 +143,7 @@ python tests/http_smoke.py
 node --check public/app.js
 ```
 
-Lokaal zonder instellingen luistert de app op 127.0.0.1:8080 zonder login. Voor een netwerkbinding weigert hij te starten zonder wachtwoord. `python app.py --scan-once` voert één echte scan uit. `/health` controleert HTTP en SQLite; individuele bronfouten staan onder Bronnen.
+Lokaal zonder instellingen luistert de openbare website op 127.0.0.1:8080; beheer vereist ADMIN_PASSWORD. Voor een netwerkbinding weigert hij te starten zonder wachtwoord. `python app.py --scan-once` voert één echte scan uit. `/health` controleert HTTP en SQLite; individuele bronfouten staan onder Bronnen.
 
 De tests dekken onder meer seizoenisolatie, titelherkenning, foutieve koppelingen, statusregels, bronvalidatie, duurzame broninstellingen, dubbele berichten en authenticatie. De GitHub-workflow test ook het bouwen en starten van de Docker-image. De lokale Docker-engine moet draaien om dat lokaal te kunnen reproduceren.
 
@@ -166,3 +166,19 @@ De herkenning gebruikt ook de paginabeschrijving en zinnen uit de artikeltekst d
 Een benoemd Nederlands programma met bevestigde beschikbaarheid of concrete releaseplanning verschijnt ook zonder bewezen seizoennummer in het overzicht. Het blijft dan ‘Seizoen niet vastgesteld’; er wordt geen eerste of nieuw seizoen verzonnen. Daarom opent het overzicht standaard met Alle producties. Seizoennummers in URL’s zijn geen classificatiebewijs.
 
 De aangeleverde links voor Wolven, Anti Survival Show en Undercover Lover worden rechtstreeks geprobeerd tijdens de scan. Een geblokkeerde of niet uitleesbare pagina blokkeert andere bronartikelen niet; fouten zijn zichtbaar bij Bronnen en worden maximaal dagelijks opnieuw geprobeerd. Algemene zoekopdrachten voor reality, Net5, Prime Video, programmagidsen en Nederlandstalige producties zijn eveneens uitgebreid. Browserafhankelijke pagina’s, zoals sommige NPO/Streamz-pagina’s en privacygates, kunnen onleesbaar blijven; beschikbare alternatieve bronnen worden wel verwerkt.
+
+## Openbare website, beheer en updates
+
+De homepage en `/api/dashboard` zijn publiek toegankelijk. Bezoekers kunnen series, dossiers en bronartikelen bekijken. Interne notities, de beoordelingswachtrij, broninstellingen en foutdiagnostiek worden niet via de openbare API geleverd.
+
+Open `/admin` voor de beheeromgeving met de bestaande ADMIN_USER / ADMIN_PASSWORD-login. Daar staan scans, bronbeheer, beoordelingen, metadata-import en wijzigingen. Alle POST-endpoints en `/api/admin/dashboard` vereisen serverzijdig authenticatie. Zonder ADMIN_PASSWORD blijft beheer gesloten, ook op localhost. De openbare website blijft bruikbaar.
+
+Alle wijzigingen gaan rechtstreeks op **main**. GitHub en de VPS gebruiken main als standaard; gebruik geen aparte codex-branch. Op de VPS staat de checkout in `/opt/docker/apps/seriesradar`. De bestaande aio-composeconfiguratie blijft behouden. Updaten:
+
+```sh
+git -C /opt/docker/apps/seriesradar pull --ff-only origin main
+cd /opt/docker
+sudo docker compose -p aio --profile seriesradar up -d --build --no-deps seriesradar
+```
+
+Een GitHub-push bouwt en test in CI; bovenstaande opdracht werkt de draaiende VPS-container bij.

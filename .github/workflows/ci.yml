@@ -29,7 +29,8 @@ jobs:
               except OSError:
                   time.sleep(1)
           token = base64.b64encode(b'admin:ci-only-password').decode()
-          request = urllib.request.Request('http://127.0.0.1:8080/api/dashboard', headers={'Authorization': 'Basic ' + token})
+          assert json.load(urllib.request.urlopen('http://127.0.0.1:8080/api/dashboard'))['sources'] == []
+          request = urllib.request.Request('http://127.0.0.1:8080/api/admin/dashboard', headers={'Authorization': 'Basic ' + token})
           data = json.load(urllib.request.urlopen(request, timeout=10))
           with open('sources.json', encoding='utf-8') as source_file:
               expected_sources = {s['id'] for s in json.load(source_file)}

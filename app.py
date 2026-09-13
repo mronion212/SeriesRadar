@@ -410,7 +410,8 @@ class Handler(BaseHTTPRequestHandler):
     def authorized(self):
         password = os.environ.get('ADMIN_PASSWORD', '')
         if not password:
-            return True
+            self.respond(503, {'error':'Beheer is niet ingesteld: configureer ADMIN_PASSWORD.'})
+            return False
         expected = 'Basic ' + base64.b64encode((os.environ.get('ADMIN_USER', 'admin') + ':' + password).encode()).decode()
         if hmac.compare_digest(self.headers.get('Authorization', ''), expected):
             return True
@@ -426,14 +427,26 @@ class Handler(BaseHTTPRequestHandler):
             with connect() as c:
                 c.execute('SELECT 1').fetchone()
             return self.respond(200, {'status': 'ok'})
-        if not self.authorized():
+        if path in ('/admin','/admin/','/api/admin/dashboard') and not self.authorized():
             return
         if path == '/api/dashboard':
+            result=get_catalog()
+            # Public readers see catalogued productions, never the review queue,
+            # internal notes, source configuration or diagnostic errors.
+            for group in result['series']:
+                group.pop('metadata_sources',None)
+                group.pop('tvdb_check',None)
+                group['articles']=[{k:a[k] for k in ('id','title','url','summary','publisher','published','discovered','kind','season','status') if k in a} for a in group['articles']]
+                for profile in group['dossiers']:
+                    profile['fields'].pop('notes',None)
+            result['dossier_fields']=[f for f in result['dossier_fields'] if f['key']!='notes']
+            return self.respond(200, {'series':result['series'],'dossier_fields':result['dossier_fields'],'inbox':[],'ignored':[],'sources':[],'meta':{},'scanning':False,'interval':INTERVAL})
+        if path == '/api/admin/dashboard':
             with connect() as c:
                 statuses = {r['id']: dict(r) for r in c.execute('SELECT * FROM sources')}
                 meta = dict(c.execute('SELECT key,value FROM meta').fetchall())
             return self.respond(200, {**get_catalog(), 'sources': [{**statuses.get(s['id'], {}), **s} for s in sources()], 'meta': meta, 'scanning': LOCK.locked(), 'interval': INTERVAL})
-        files = {'/': ('index.html', 'text/html; charset=utf-8'), '/app.js': ('app.js', 'text/javascript; charset=utf-8'), '/style.css': ('style.css', 'text/css; charset=utf-8'), '/favicon.svg': ('favicon.svg', 'image/svg+xml')}
+        files = {'/': ('index.html', 'text/html; charset=utf-8'), '/admin': ('index.html', 'text/html; charset=utf-8'), '/admin/': ('index.html', 'text/html; charset=utf-8'), '/app.js': ('app.js', 'text/javascript; charset=utf-8'), '/style.css': ('style.css', 'text/css; charset=utf-8'), '/favicon.svg': ('favicon.svg', 'image/svg+xml')}
         if path in files:
             name, kind = files[path]
             return self.respond(200, (ROOT / 'public' / name).read_bytes(), kind)

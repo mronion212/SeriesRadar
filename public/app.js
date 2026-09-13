@@ -1,4 +1,9 @@
 const $ = id => document.getElementById(id);
+const isAdmin = /^\/admin\/?$/.test(location.pathname);
+document.body.classList.toggle('admin-mode',isAdmin);
+$('access-link').href=isAdmin?'/':'/admin';
+$('access-link').textContent=isAdmin?'Openbare website ↗':'Beheer →';
+if(isAdmin)document.querySelector('.edition').textContent='Beheeromgeving';
 const phases = ['Onbekend','Aangekondigd','Release gepland','In productie','Geproduceerd','Beschikbaar'];
 const kinds = ['Onbekend','Nieuwe serie','Nieuw seizoen'];
 let state = {series:[],inbox:[],ignored:[],sources:[],meta:{}}, view='series', dossierId=null, loading=false, dossierScope='', dossierTab='overview', editingProfile=null;
@@ -9,6 +14,7 @@ const badge = status => `<span class="status ${{'Aangekondigd':'announced','Rele
 const productionLabel = p => p.kind==='Onbekend'?'Seizoen niet vastgesteld':p.kind==='Nieuwe serie'?'Nieuwe serie · seizoen 1':`Nieuw seizoen · ${p.season ? 'seizoen '+p.season:'nummer onbekend'}`;
 const allArticles = () => [...state.series.flatMap(g=>g.articles),...state.inbox,...state.ignored];
 async function request(path,data){
+ if(data&&!isAdmin)throw new Error('Open Beheer om wijzigingen te maken.');
  const response = await fetch(path,data?{method:'POST',headers:{'Content-Type':'application/json','X-Radar-Request':'1'},body:JSON.stringify(data)}:{});
  let result; try {result=await response.json();} catch {throw new Error('De server gaf geen geldig antwoord.');}
  if(!response.ok) throw new Error(result.error||`Verzoek mislukt (${response.status}).`);
@@ -16,7 +22,7 @@ async function request(path,data){
 }
 async function load(){
  if(loading)return; loading=true;
- try {state=await request('/api/dashboard');$('error').hidden=true;render();}
+ try {state=await request(isAdmin?'/api/admin/dashboard':'/api/dashboard');$('error').hidden=true;render();}
  catch(e){$('error').textContent=e.message;$('error').hidden=false;}
  finally{loading=false;}
 }
@@ -42,7 +48,7 @@ function renderSeries(){
  return `<article class="series-card"><div class="card-top"><span class="title-mark">${esc(g.name.slice(0,2).toUpperCase())}</span>${badge(p.status)}</div><button class="series-name" data-series="${g.id}">${esc(g.name)}</button><div class="card-type">${esc(productionLabel(p))}${g.visibleProductions.length>1?' + '+(g.visibleProductions.length-1)+' producties':''}</div><div class="card-network">${esc(network.replaceAll('\n',' · '))}</div>${f.release_date?.value?`<div class="card-type">Uitzending: ${esc(f.release_date.value)}</div>`:''}<div class="card-people"><span>${cast.length?cast.length+' castleden':'Cast nog niet ingevuld'}</span><span>${g.articles.length} artikelen</span></div><div class="card-progress"><span>Dossier</span><strong>${d?.filled||0} / ${d?.total||11} basisvelden</strong></div><progress max="${d?.total||11}" value="${d?.filled||0}" aria-label="Ingevulde basisvelden"></progress><div class="card-bottom"><span>${date(g.updated)}</span><button class="text-button" data-series="${g.id}">Dossier openen ↗</button></div></article>`;
  }).join('');
 }
-function newsRow(a,reason=false){return `<article class="news-row"><div class="news-meta"><span>${esc(a.publisher)}</span><span>${date(a.published)}</span>${a.classification_reviewed?'<span>Beoordeeld</span>':''}${a.tvdb?'<span>TVDB verwerkt</span>':''}</div><h3>${esc(a.title)}</h3>${reason?`<p>${esc(a.rejection||a.issue)}</p>`:`<p>${esc(productionLabel({kind:a.kind,season:a.season}))} · ${esc(a.status)}</p>`}<div class="news-actions"><a href="${esc(a.url)}" target="_blank" rel="noopener noreferrer">Bronbericht ↗</a><button class="text-button" data-article="${a.id}">Beoordelen / koppelen</button></div></article>`;}
+function newsRow(a,reason=false){return `<article class="news-row"><div class="news-meta"><span>${esc(a.publisher)}</span><span>${date(a.published)}</span>${a.classification_reviewed?'<span>Beoordeeld</span>':''}${a.tvdb?'<span>TVDB verwerkt</span>':''}</div><h3>${esc(a.title)}</h3>${reason?`<p>${esc(a.rejection||a.issue)}</p>`:`<p>${esc(productionLabel({kind:a.kind,season:a.season}))} · ${esc(a.status)}</p>`}<div class="news-actions"><a href="${esc(a.url)}" target="_blank" rel="noopener noreferrer">Bronbericht ↗</a><button class="text-button admin-only" data-article="${a.id}">Beoordelen / koppelen</button></div></article>`;}
 function renderReview(){
  const query=$('review-search').value.toLowerCase(),selected=$('review-selection').value;
  const rows=state[selected].filter(a=>!query||`${a.title} ${a.publisher}`.toLowerCase().includes(query));
@@ -69,7 +75,7 @@ function renderDossier(){
  const renderField=f=>{const v=fields[f.key];return `<div class="metadata-value ${v?.value?'':'not-known'}"><dt>${esc(f.label)}</dt><dd>${v?.value?esc(v.value).replaceAll('\n','<br>'):'Nog onbekend'}</dd>${v?.value?`<div class="fact-source"><span>${v.origin==='manual'?'Handmatig beoordeeld':'Automatisch voorstel'}</span>${v.source_url?`<a href="${esc(v.source_url)}" target="_blank" rel="noopener noreferrer" title="${esc(v.evidence||'Bron bekijken')}">Bron ↗</a>`:'<span>Bron ontbreekt</span>'}</div>`:''}</div>`;};
  $('dossier-metadata').innerHTML=`<div class="dossier-summary"><div>${badge(profile.status)}<h3>${esc(productionLabel(profile))}</h3><p>${profile.filled} van ${profile.total} basisvelden ingevuld. ${profile.missing.length} nog onbekend.</p></div><div class="completion-number">${profile.filled}<span>/${profile.total}</span></div></div>`+['Basis','Uitgave','Links','Aanvullend'].map(section=>`<section class="metadata-section"><h3>${section}</h3><dl class="metadata-grid">${state.dossier_fields.filter(f=>f.section===section).map(renderField).join('')}</dl></section>`).join('');
  $('dossier-people').innerHTML=`<p class="explanation">Cast en crew voor ${esc(productionLabel(profile).toLowerCase())}. Rollen die niet bevestigd zijn, blijven leeg.</p><dl class="people-grid">${state.dossier_fields.filter(f=>f.section==='Makers').map(renderField).join('')}</dl>`;
- $('dossier-productions').innerHTML=group.productions.map(p=>`<div class="production-row"><div><h3>${esc(productionLabel(p))}</h3><button class="evidence-button" data-article="${p.status_article}">Onderbouwing: ${esc(p.evidence)}</button></div><div>${badge(p.status)}</div></div>`).join('');
+ $('dossier-productions').innerHTML=group.productions.map(p=>`<div class="production-row"><div><h3>${esc(productionLabel(p))}</h3>${isAdmin?`<button class="evidence-button" data-article="${p.status_article}">Onderbouwing: ${esc(p.evidence)}</button>`:`<p>Onderbouwing: ${esc(p.evidence)}</p>`}</div><div>${badge(p.status)}</div></div>`).join('');
  $('dossier-news').innerHTML=group.articles.map(a=>newsRow(a)).join('');
  $('dossier-linked-sources').innerHTML=(group.metadata_sources||[]).filter(s=>s.scope===dossierScope).map(s=>`<p><a href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">Gekoppelde metadata-bron ↗</a> · ${clock(s.checked)}${s.error?' · '+esc(s.error):''}</p>`).join('');
  $('dossier-checklist').innerHTML=`<div class="checklist"><strong>Nog aan te vullen</strong><p>${profile.missing.length?profile.missing.map(k=>esc(state.dossier_fields.find(f=>f.key===k)?.label||k)).join(' · '):'De basisvelden zijn gevuld. Controleer de gegevens en bronvermeldingen.'}</p></div>`;
