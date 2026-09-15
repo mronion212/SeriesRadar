@@ -9,6 +9,26 @@ from test_catalog import article
 
 
 class ResearchTests(unittest.TestCase):
+    def test_report_preserves_blocked_source_for_every_field(self):
+        from urllib.error import HTTPError
+        proposals=[{'field':field,'value':'Voorstel','source_url':'https://example.org','evidence':'Een letterlijk citaat'} for field in ('cast','directors')]
+        report=[]
+        with patch.object(ai_research,'urlopen'):
+            def blocked(*_):raise HTTPError('https://example.org',403,'Forbidden',{},None)
+            facts,rejected=ai_research.verify_proposals(proposals,{'name':'Teststad'},{'season':1},blocked,diagnostics=report)
+        self.assertEqual((facts,rejected),({},2))
+        self.assertEqual([r['code'] for r in report],['source_blocked','source_blocked'])
+        self.assertTrue(all('403' in r['reason'] for r in report))
+
+    def test_report_distinguishes_quote_and_season_failures(self):
+        report=[]
+        proposals=[{'field':'episodes','value':'8','source_url':'https://example.org','evidence':'Teststad telt acht afleveringen.'}]
+        ai_research.verify_proposals(proposals,{'name':'Teststad'},{'season':1},lambda *_:'Andere inhoud',diagnostics=report)
+        self.assertEqual(report[0]['code'],'quote_not_found')
+        report=[]
+        ai_research.verify_proposals(proposals,{'name':'Teststad'},{'season':1},lambda *_:'Seizoen 2. Teststad telt acht afleveringen.',diagnostics=report)
+        self.assertEqual(report[0]['code'],'season_mismatch')
+
     def test_question_and_quoted_prepositions_are_preserved(self):
         self.assertEqual(catalog.extract_name(article('1','Het nieuwe datingprogramma Wil Je met Me Bouwen? maakt zijn opwachting bij NET5')), 'Wil Je met Me Bouwen?')
         self.assertEqual(catalog.extract_name(article('2', 'Nieuwe Nederlandse serie "Met het mes op tafel" aangekondigd')), 'Met het mes op tafel')

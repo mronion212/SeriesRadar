@@ -95,6 +95,9 @@ with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ,{'ADMIN_U
             paid.assert_not_called()
         fields=call('/api/dashboard',auth=False)[1]['series'][0]['dossiers'][0]['fields']
         assert fields['episodes']['value']=='10' and fields['episodes']['origin']=='external_ai'
+        report=call('/api/dossier/research-package',target)[1]['research_status']['report']
+        assert report[0]['code']=='confirmed' and report[0]['field']=='episodes'
+        assert 'ai_runs' not in call('/api/dashboard',auth=False)[1]['series'][0]
         assert fields['cast']['value']=='Anna de Vries | Noor'
         with patch.dict(os.environ,{'ADMIN_PASSWORD':''}):
             assert call('/api/dashboard',auth=False)[0]==200

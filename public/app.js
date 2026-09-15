@@ -69,7 +69,7 @@ function renderDossier(){
  if(!profile)return;
  const fields=profile.fields;
  const run=group.ai_runs?.find(r=>r.scope===dossierScope);
- if($('research-detail').open&&researchContext?.series_id===group.id){const externalRun=group.ai_runs?.find(r=>r.scope===researchContext.scope&&r.method==='external');if(externalRun)$('research-import-status').textContent=externalRun.message+' · '+clock(externalRun.checked);}
+ if($('research-detail').open&&researchContext?.series_id===group.id){const externalRun=group.ai_runs?.find(r=>r.scope===researchContext.scope&&r.method==='external');if(externalRun){$('research-import-status').textContent=externalRun.message+' · '+clock(externalRun.checked);renderResearchReport(externalRun);}}
  $('research-dossier').disabled=!!state.ai?.busy||!state.ai?.configured;
  $('research-status').textContent=run?`${run.message} · ${clock(run.checked)}`:state.ai?.configured?'Onderzoek zonder API gebruikt je eigen chat. De betaalde API-route gebruikt GPT-5.6 Luna · max reasoning.':'Gebruik Onderzoek zonder API met je ChatGPT-abonnement. Een API-sleutel is daarvoor niet nodig.';
  const tvdbId=fields.tvdb_id?.value;
@@ -159,6 +159,13 @@ $('ai-settings').onsubmit=async e=>{e.preventDefault();e.submitter.disabled=true
 $('research-dossier').onclick=async e=>{e.target.disabled=true;try{await request('/api/dossier/research',{series_id:dossierId,scope:dossierScope});await load();}catch(err){$('research-status').textContent=err.message;e.target.disabled=false;}};
 
 let researchContext=null;
+function renderResearchReport(run){
+ const panel=$('research-report');
+ if(!run||run.status==='running'){panel.textContent='';return;}
+ if(!run.report){panel.innerHTML='<p>Bij deze oudere import zijn de redenen en niet-bevestigde voorstellen niet bewaard. Plak hetzelfde JSON-antwoord opnieuw om een rapport per veld te krijgen; bestaande gegevens blijven behouden.</p>';return;}
+ const rows=[...run.report].sort((a,b)=>(a.status==='confirmed')-(b.status==='confirmed'));
+ panel.innerHTML='<h3>Controle per veld</h3><p>Deze controle leest bronnen opnieuw. Niet bevestigd betekent niet automatisch onjuist. Open de bron om de waarde en het citaat te beoordelen.</p>'+rows.map(r=>`<article class="news-row"><h4>${esc(state.dossier_fields.find(f=>f.key===r.field)?.label||r.field)} · ${r.status==='confirmed'?'Broncitaat bevestigd':'Niet automatisch bevestigd'}</h4><p>${esc(r.reason)}</p><details><summary>Voorstel en citaat bekijken</summary><p>${esc(r.value).replaceAll('\n','<br>')}</p><blockquote>${esc(r.evidence)}</blockquote></details><a href="${esc(r.source_url)}" target="_blank" rel="noopener noreferrer">Bron bekijken ↗</a></article>`).join('');
+}
 function parseResearchResult(raw){
  const text=raw.trim().replace(/^```(?:json)?\s*/i,'').replace(/\s*```$/,'');
  let result;try{result=JSON.parse(text);}catch{throw new Error('Plak het volledige JSON-antwoord van ChatGPT. De tekst is geen geldige JSON.');}
@@ -177,6 +184,7 @@ $('research-external').onclick=async e=>{
   $('research-context').textContent=researchContext.title+(selectedProfile?' · '+productionLabel(selectedProfile):'');
   $('research-prompt').value=researchContext.prompt;$('research-result').value='';
   $('research-import-status').textContent=researchContext.research_status?.method==='external'?researchContext.research_status.message:'';
+  renderResearchReport(researchContext.research_status?.method==='external'?researchContext.research_status:null);
   $('research-import-feedback').textContent='Plak het JSON-antwoord en klik op Geplakt resultaat toepassen. Hiervoor zijn geen API-credits nodig.';
   $('research-tools-status').textContent=typeof document.modelContext?.registerTool==='function'?'Deze browser ondersteunt websitefuncties; beschikbaarheid hangt ook af van je gekozen model en account.':'Deze browser biedt geen websitefuncties. De kopieer/import-route werkt wel.';
   $('research-detail').showModal();
@@ -191,7 +199,7 @@ $('research-import-form').onsubmit=async e=>{
  try{
   const result=parseResearchResult($('research-result').value);
   if(!researchContext||result.series_id!==researchContext.series_id||result.scope!==researchContext.scope||result.title!==researchContext.title)throw new Error('Dit antwoord hoort bij een ander dossier of seizoen. Gebruik de opdracht uit dit venster.');
-  const response=await submitResearch(result);$('research-import-feedback').textContent='Antwoord ontvangen. De broncontrole loopt zonder OpenAI API; de voortgang staat hieronder.';$('research-import-status').textContent=response.message;
+  const response=await submitResearch(result);$('research-import-feedback').textContent='Antwoord ontvangen. De broncontrole loopt zonder OpenAI API; de voortgang staat hieronder.';$('research-import-status').textContent=response.message;renderResearchReport({status:'running'});
  }catch(err){$('research-import-feedback').textContent=err.message;}finally{e.submitter.disabled=false;}
 };
 

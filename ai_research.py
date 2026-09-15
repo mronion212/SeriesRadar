@@ -1,6 +1,7 @@
 """Admin-triggered, source-checked research using the OpenAI Responses API."""
 import json
 import re
+import html
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError
 import dossier
@@ -10,7 +11,7 @@ MODEL = 'gpt-5.6-luna'
 EFFORT = 'max'
 
 
-def research(key, group, profile, read_page):
+def research(key, group, profile, read_page, diagnostics=None):
     properties = {k: {'type': 'string'} for k in ('field', 'value', 'source_url', 'evidence')}
     properties['field']['enum'] = sorted(dossier.KEYS - {'notes'})
     schema = {'type': 'object', 'properties': {'facts': {'type': 'array', 'items': {
@@ -56,7 +57,7 @@ def research(key, group, profile, read_page):
             consulted.update(s.get('url') for s in item.get('action', {}).get('sources', []))
         for content in item.get('content', []):
             consulted.update(a.get('url') for a in content.get('annotations', []) if a.get('type') == 'url_citation')
-    return verify_proposals(proposals, group, profile, read_page, consulted=consulted)
+    return verify_proposals(proposals, group, profile, read_page, consulted=consulted, diagnostics=diagnostics)
 
 
 def validate_proposals(proposals):
@@ -85,27 +86,53 @@ def validate_proposals(proposals):
     return normalized
 
 
-def verify_proposals(proposals, group, profile, read_page, consulted=None):
+def verify_proposals(proposals, group, profile, read_page, consulted=None, diagnostics=None):
     """External results have no trusted search trace; always re-read their sources."""
     if proposals:proposals=validate_proposals(proposals)
-    pages, facts, rejected = {}, {}, 0
+    pages, failures, facts, rejected = {}, {}, {}, 0
     for proposal in proposals:
+        field = proposal['field']; url = proposal['source_url']; quote = proposal['evidence']
+        code='invalid'; reason='Ongeldig voorstel.'
         try:
-            field = proposal['field']; url = proposal['source_url']; quote = proposal['evidence']
             if field == 'notes' or (consulted is not None and url not in consulted) or not quote or not proposal['value']:
-                raise ValueError('Bron ontbreekt')
+                code='not_consulted';reason='Deze bron ontbreekt in de geraadpleegde bronnen van het API-onderzoek.'
+                raise ValueError(reason)
             validated = dossier.validate_fields({field: {k: proposal[k] for k in ('value','source_url','evidence')}})[field]
             if url not in pages:
-                if len(pages) >= 10: raise ValueError('Bronlimiet')
+                if len(pages) >= 10:
+                    code='source_limit';reason='Nog niet gecontroleerd: de limiet van tien bronpagina’s per import is bereikt.'
+                    raise ValueError(reason)
                 pages[url] = None
-                pages[url] = read_page(url, group['name'])
+                try:
+                    pages[url] = read_page(url, group['name'])
+                except HTTPError as exc:
+                    failures[url]=('source_blocked' if exc.code in (401,403,429) else 'source_unavailable',f'Bron kon niet worden gelezen (HTTP {exc.code}). Dit is geen inhoudelijke afwijzing van het gegeven.')
+                except OSError:
+                    failures[url]=('source_unavailable','Bron niet bereikbaar of laden duurde te lang. De inhoud is niet gecontroleerd.')
+                except ValueError as exc:
+                    failures[url]=('source_unreadable',str(exc)[:250]+' De inhoud is niet bevestigd.')
+            if url in failures:
+                code,reason=failures[url];raise ValueError(reason)
             page = pages[url]
-            if not page or normalize(quote) not in normalize(page): raise ValueError('Citaat niet bevestigd')
+            if not page:
+                code='source_unreadable';reason='De pagina leverde geen uitleesbare tekst op. De inhoud is niet gecontroleerd.'
+                raise ValueError(reason)
+            if normalize(html.unescape(quote)) not in normalize(html.unescape(page)):
+                code='quote_not_found';reason='Het opgegeven citaat is niet teruggevonden in de uitgelezen tekst. Mogelijk is het geparafraseerd, gewijzigd of ontbreekt het in de pagina-uitlezing.'
+                raise ValueError(reason)
             detected = season_of(page)
-            if detected and detected != profile['season']: raise ValueError('Ander of onbekend seizoen')
-            facts.setdefault(field, {**validated, 'origin': 'ai' if consulted is not None else 'external_ai'})
+            if detected and detected != profile['season']:
+                code='season_mismatch';reason=f'De bron noemt seizoen {detected}; het gekozen dossier heeft seizoen {profile["season"] or "onbekend"}. Controleer bij welke productie dit gegeven hoort.'
+                raise ValueError(reason)
+            if field in facts:
+                code='duplicate';reason='Voor dit veld is al een bevestigd voorstel opgenomen. Dit extra voorstel is niet toegepast.'
+                raise ValueError(reason)
+            facts[field]={**validated, 'origin': 'ai' if consulted is not None else 'external_ai'}
+            code='confirmed';reason='Bronpagina gelezen en citaat teruggevonden. De interpretatie blijft een te beoordelen voorstel.'
         except (ValueError, KeyError, TypeError, OSError):
             rejected += 1
+        if diagnostics is not None:
+            diagnostics.append({**proposal,'status':'confirmed' if code=='confirmed' else 'unconfirmed','code':code,'reason':reason})
     return facts, rejected
 
 

@@ -77,6 +77,8 @@ def init():
         c.execute("UPDATE ai_runs SET status='error',message='Onderzoek onderbroken door herstart; probeer opnieuw.' WHERE status='running'")
         if 'method' not in {r['name'] for r in c.execute('PRAGMA table_info(ai_runs)')}:
             c.execute("ALTER TABLE ai_runs ADD COLUMN method TEXT NOT NULL DEFAULT 'api'")
+        if 'report' not in {r['name'] for r in c.execute('PRAGMA table_info(ai_runs)')}:
+            c.execute('ALTER TABLE ai_runs ADD COLUMN report TEXT')
         for table in ('enrichment_checks','dossier_sources'):
             if 'last_success' not in {r['name'] for r in c.execute('PRAGMA table_info('+table+')')}:
                 c.execute('ALTER TABLE '+table+' ADD COLUMN last_success TEXT')
@@ -287,7 +289,7 @@ def get_catalog():
         for run in runs:
             if run['series_id']!=group['id']:continue
             candidates.setdefault(run['scope'],{}).update(json.loads(run['facts'] or '{}'))
-            group['ai_runs'].append({k:run[k] for k in ('scope','status','checked','message','method')})
+            group['ai_runs'].append({**{k:run[k] for k in ('scope','status','checked','message','method')},'report':json.loads(run['report']) if run['report'] else None})
         group['dossiers']=dossier.prepare(group,values,candidates,facts)
         group['tvdb_check']=checks.get('tvdb:'+group['id'])
     result['dossier_fields']=[{'key':k,'label':label,'section':section} for k,label,section in dossier.FIELDS]
@@ -311,11 +313,12 @@ def read_article_page(url,name):
 
 
 def run_research(group,profile,key=None,proposals=None):
+    diagnostics=[]
     try:
         if proposals is None:
-            facts,rejected=ai_research.research(key,group,profile,read_article_page)
+            facts,rejected=ai_research.research(key,group,profile,read_article_page,diagnostics=diagnostics)
         else:
-            facts,rejected=ai_research.verify_proposals(proposals,group,profile,read_article_page)
+            facts,rejected=ai_research.verify_proposals(proposals,group,profile,read_article_page,diagnostics=diagnostics)
         stamp=now()
         for field in facts.values():field['checked']=stamp
         with connect() as c:
@@ -323,13 +326,19 @@ def run_research(group,profile,key=None,proposals=None):
             merged={**json.loads(previous['facts'] or '{}'),**facts} if previous else facts
             message=f'{len(facts)} brongecontroleerde voorstellen opgeslagen; {rejected} niet bevestigd. Controleer de inhoud.'
             if proposals is not None:message='Import afgerond zonder API. '+message
+            if rejected:message+=' Niet bevestigd betekent niet automatisch onjuist; bekijk de redenen per veld.'
             if not facts:message+=' Bestaande gegevens zijn behouden.'
-            c.execute("UPDATE ai_runs SET status='done',checked=?,message=?,facts=? WHERE series_id=? AND scope=?",
-                      (stamp,message,json.dumps(merged),group['id'],profile['scope']))
+            manual=c.execute('SELECT fields FROM dossier_data WHERE series_id=? AND scope=?',(group['id'],profile['scope'])).fetchone()
+            manual_fields=json.loads(manual['fields']) if manual else {}
+            for item in diagnostics:
+                if item['status']=='confirmed' and item['field'] in manual_fields:
+                    item['reason']+=' Het bestaande handmatige veld blijft leidend.'
+            c.execute("UPDATE ai_runs SET status='done',checked=?,message=?,facts=?,report=? WHERE series_id=? AND scope=?",
+                      (stamp,message,json.dumps(merged),json.dumps(diagnostics),group['id'],profile['scope']))
     except Exception as exc:
         message=str(exc) if isinstance(exc,ValueError) else 'Onderzoek mislukt of bron niet bereikbaar. Probeer later opnieuw.'
         with connect() as c:
-            c.execute("UPDATE ai_runs SET status='error',checked=?,message=? WHERE series_id=? AND scope=?",(now(),message[:250],group['id'],profile['scope']))
+            c.execute("UPDATE ai_runs SET status='error',checked=?,message=?,report=? WHERE series_id=? AND scope=?",(now(),message[:250],json.dumps(diagnostics),group['id'],profile['scope']))
     finally:AI_LOCK.release()
 
 def import_metadata(series_id,scope,name,url):
@@ -560,7 +569,7 @@ class Handler(BaseHTTPRequestHandler):
                     if not AI_LOCK.acquire(blocking=False):return self.respond(409,{'error':'Er loopt al een onderzoek of broncontrole. Wacht tot dit klaar is.'})
                     try:
                         with connect() as c:
-                            c.execute("INSERT INTO ai_runs (series_id,scope,status,checked,message,facts,method) VALUES (?,?,'running',?,'Geplakt resultaat verwerken: bronpagina’s lezen, zonder OpenAI API…','{}','external') ON CONFLICT(series_id,scope) DO UPDATE SET status='running',checked=excluded.checked,message=excluded.message,method=excluded.method",(group['id'],profile['scope'],now()))
+                            c.execute("INSERT INTO ai_runs (series_id,scope,status,checked,message,facts,method) VALUES (?,?,'running',?,'Geplakt resultaat verwerken: bronpagina’s lezen, zonder OpenAI API…','{}','external') ON CONFLICT(series_id,scope) DO UPDATE SET status='running',checked=excluded.checked,message=excluded.message,method=excluded.method,report=NULL",(group['id'],profile['scope'],now()))
                         threading.Thread(target=run_research,args=(group,profile,None,proposals),daemon=True).start()
                     except Exception:
                         AI_LOCK.release();raise
@@ -571,7 +580,7 @@ class Handler(BaseHTTPRequestHandler):
                     if not AI_LOCK.acquire(blocking=False):return self.respond(409,{'error':'Er loopt al een AI-onderzoek.'})
                     try:
                         with connect() as c:
-                            c.execute("INSERT INTO ai_runs (series_id,scope,status,checked,message,facts,method) VALUES (?,?,'running',?,'Onderzoek via OpenAI API bezig…','{}','api') ON CONFLICT(series_id,scope) DO UPDATE SET status='running',checked=excluded.checked,message=excluded.message,method=excluded.method",(group['id'],profile['scope'],now()))
+                            c.execute("INSERT INTO ai_runs (series_id,scope,status,checked,message,facts,method) VALUES (?,?,'running',?,'Onderzoek via OpenAI API bezig…','{}','api') ON CONFLICT(series_id,scope) DO UPDATE SET status='running',checked=excluded.checked,message=excluded.message,method=excluded.method,report=NULL",(group['id'],profile['scope'],now()))
                         threading.Thread(target=run_research,args=(group,profile,key),daemon=True).start()
                     except Exception:
                         AI_LOCK.release();raise
