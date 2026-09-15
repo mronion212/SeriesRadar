@@ -46,3 +46,12 @@ class ResearchTests(unittest.TestCase):
         for field,url in [('notes','https://example.org'),('cast','javascript:alert(1)')]:
             with self.assertRaises(ValueError):
                 ai_research.validate_proposals([{'field':field,'value':'Test','source_url':url,'evidence':'Test'}])
+
+    def test_chatgpt_markdown_links_normalized_before_validation(self):
+        proposal={'field':'official_url','value':'[Website](https://example.org/show)','source_url':'[https://example.org/show](https://example.org/show)','evidence':'Teststad'}
+        normalized=ai_research.validate_proposals([proposal])[0]
+        self.assertEqual(normalized['source_url'],'https://example.org/show')
+        self.assertEqual(normalized['value'],'https://example.org/show')
+        self.assertTrue(proposal['value'].startswith('[Website]'))
+        with self.assertRaises(ValueError):
+            ai_research.validate_proposals([{**proposal,'source_url':'[Website](javascript:alert(1))'}])

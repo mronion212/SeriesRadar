@@ -1,5 +1,6 @@
 """Admin-triggered, source-checked research using the OpenAI Responses API."""
 import json
+import re
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError
 import dossier
@@ -61,21 +62,32 @@ def research(key, group, profile, read_page):
 def validate_proposals(proposals):
     if not isinstance(proposals,list) or not 1 <= len(proposals) <= 60:
         raise ValueError('Gebruik 1 tot 60 voorstellen in facts.')
+    normalized=[]
     for proposal in proposals:
         if not isinstance(proposal,dict) or set(proposal)!={'field','value','source_url','evidence'}:
             raise ValueError('Elk voorstel heeft field, value, source_url en evidence nodig.')
         field=proposal['field']
         if not isinstance(field,str) or field not in dossier.KEYS-{'notes'}:
             raise ValueError('Onbekend of intern dossierveld')
-        dossier.validate_fields({field:{k:proposal[k] for k in ('value','source_url','evidence')}})
+        proposal=dict(proposal)
+        for key in ('source_url','value') if field.endswith('_url') else ('source_url',):
+            if isinstance(proposal[key],str):
+                link=re.fullmatch(r'\s*\[[^\]\r\n]*\]\((https?://[^\s]+)\)\s*',proposal[key])
+                if link:proposal[key]=link.group(1)
+        try:
+            dossier.validate_fields({field:{k:proposal[k] for k in ('value','source_url','evidence')}})
+        except ValueError as exc:
+            raise ValueError(field+': '+str(exc)) from None
         if any(not proposal[k].strip() for k in ('value','source_url','evidence')):
             raise ValueError('Waarde, bronlink en letterlijk broncitaat zijn verplicht.')
-    return proposals
+        if not normalize(proposal['evidence']):raise ValueError(field+': gebruik een inhoudelijk broncitaat.')
+        normalized.append(proposal)
+    return normalized
 
 
 def verify_proposals(proposals, group, profile, read_page, consulted=None):
     """External results have no trusted search trace; always re-read their sources."""
-    if proposals:validate_proposals(proposals)
+    if proposals:proposals=validate_proposals(proposals)
     pages, facts, rejected = {}, {}, 0
     for proposal in proposals:
         try:

@@ -69,7 +69,7 @@ function renderDossier(){
  if(!profile)return;
  const fields=profile.fields;
  const run=group.ai_runs?.find(r=>r.scope===dossierScope);
- if($('research-detail').open&&researchContext?.series_id===group.id){const externalRun=group.ai_runs?.find(r=>r.scope===researchContext.scope);if(externalRun)$('research-import-status').textContent=externalRun.message+' · '+clock(externalRun.checked);}
+ if($('research-detail').open&&researchContext?.series_id===group.id){const externalRun=group.ai_runs?.find(r=>r.scope===researchContext.scope&&r.method==='external');if(externalRun)$('research-import-status').textContent=externalRun.message+' · '+clock(externalRun.checked);}
  $('research-dossier').disabled=!!state.ai?.busy||!state.ai?.configured;
  $('research-status').textContent=run?`${run.message} · ${clock(run.checked)}`:state.ai?.configured?'Onderzoek zonder API gebruikt je eigen chat. De betaalde API-route gebruikt GPT-5.6 Luna · max reasoning.':'Gebruik Onderzoek zonder API met je ChatGPT-abonnement. Een API-sleutel is daarvoor niet nodig.';
  const tvdbId=fields.tvdb_id?.value;
@@ -176,22 +176,23 @@ $('research-external').onclick=async e=>{
   const selectedProfile=state.series.find(g=>g.id===researchContext.series_id)?.dossiers.find(p=>p.scope===researchContext.scope);
   $('research-context').textContent=researchContext.title+(selectedProfile?' · '+productionLabel(selectedProfile):'');
   $('research-prompt').value=researchContext.prompt;$('research-result').value='';
-  $('research-import-status').textContent=researchContext.research_status?.message||'';
+  $('research-import-status').textContent=researchContext.research_status?.method==='external'?researchContext.research_status.message:'';
+  $('research-import-feedback').textContent='Plak het JSON-antwoord en klik op Geplakt resultaat toepassen. Hiervoor zijn geen API-credits nodig.';
   $('research-tools-status').textContent=typeof document.modelContext?.registerTool==='function'?'Deze browser ondersteunt websitefuncties; beschikbaarheid hangt ook af van je gekozen model en account.':'Deze browser biedt geen websitefuncties. De kopieer/import-route werkt wel.';
   $('research-detail').showModal();
  }catch(err){$('research-status').textContent=err.message;}finally{e.target.disabled=false;}
 };
 $('copy-research').onclick=async()=>{
- try{await navigator.clipboard.writeText($('research-prompt').value);$('research-import-status').textContent='Opdracht gekopieerd. Plak deze in je ChatGPT-chat.';}
- catch{$('research-prompt').focus();$('research-prompt').select();$('research-import-status').textContent='Kopieer de geselecteerde opdracht met Ctrl+C.';}
+ try{await navigator.clipboard.writeText($('research-prompt').value);$('research-import-feedback').textContent='Opdracht gekopieerd. Plak deze in je ChatGPT-chat.';}
+ catch{$('research-prompt').focus();$('research-prompt').select();$('research-import-feedback').textContent='Kopieer de geselecteerde opdracht met Ctrl+C.';}
 };
 $('research-import-form').onsubmit=async e=>{
- e.preventDefault();e.submitter.disabled=true;
+ e.preventDefault();e.submitter.disabled=true;$('research-import-feedback').textContent='Geplakt antwoord controleren…';
  try{
   const result=parseResearchResult($('research-result').value);
   if(!researchContext||result.series_id!==researchContext.series_id||result.scope!==researchContext.scope||result.title!==researchContext.title)throw new Error('Dit antwoord hoort bij een ander dossier of seizoen. Gebruik de opdracht uit dit venster.');
-  const response=await submitResearch(result);$('research-import-status').textContent=response.message;
- }catch(err){$('research-import-status').textContent=err.message;}finally{e.submitter.disabled=false;}
+  const response=await submitResearch(result);$('research-import-feedback').textContent='Antwoord ontvangen. De broncontrole loopt zonder OpenAI API; de voortgang staat hieronder.';$('research-import-status').textContent=response.message;
+ }catch(err){$('research-import-feedback').textContent=err.message;}finally{e.submitter.disabled=false;}
 };
 
 if(isAdmin&&typeof document.modelContext?.registerTool==='function'){
