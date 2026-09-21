@@ -8,6 +8,20 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import app
 
 class RadarTests(unittest.TestCase):
+    def test_atom_uses_full_content(self):
+        feed=b'<feed xmlns="http://www.w3.org/2005/Atom"><entry><title>Test</title><summary>Kort</summary><content>Volledige inhoud</content><link href="https://example.org/test"/></entry></feed>'
+        self.assertEqual(list(app.parse_feed(feed))[0]['summary'],'Volledige inhoud')
+
+    def test_unread_articles_precede_recently_checked_articles(self):
+        items=[{'title':'Nieuwe Nederlandse serie Test'+str(n),'url':'https://example.org/'+str(n),'summary':'','published':f'2026-09-0{n+1}T12:00:00Z','publisher':''} for n in range(2)]
+        with app.connect() as c:
+            app.ingest(c,{'id':'test','name':'Test'},items)
+            recent=c.execute('SELECT id FROM articles ORDER BY published DESC LIMIT 1').fetchone()['id']
+            c.execute('INSERT INTO enrichment_checks (key,checked) VALUES (?,?)',('article:'+recent,'2020-01-01'))
+        with patch.object(app,'public_url',side_effect=ValueError('test stop')) as fetch:
+            app.enrich_articles(limit=1)
+        fetch.assert_called_once_with('https://example.org/0')
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.previous = app.DB

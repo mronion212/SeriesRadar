@@ -46,11 +46,30 @@ def phase_of(text):
             return phase, m.group(0)
     return 'Onbekend', 'Geen expliciete productiestatus in het feedbericht'
 
+def season_numbers(text):
+    numbers = {int(n) for n in re.findall(r'\bseizoen\s+(\d{1,2})\b', text, re.I)}
+    numbers.update(int(n) for n in re.findall(r'\b(\d{1,2})(?:e|de|ste)\s+seizoen\b', text, re.I))
+    numbers.update(ORDINALS[n.lower()] for n in re.findall(r'\b(' + '|'.join(ORDINALS) + r')(?: en laatste)? seizoen\b', text, re.I))
+    return numbers
+
+
 def season_of(text):
-    m = re.search(r'\bseizoen\s+(\d{1,2})\b', text, re.I)
-    if m: return int(m.group(1))
-    m = re.search(r'\b(' + '|'.join(ORDINALS) + r')(?: en laatste)? seizoen\b', text, re.I)
-    return ORDINALS[m.group(1).lower()] if m else None
+    numbers = season_numbers(text)
+    return next(iter(numbers)) if len(numbers)==1 and 0 not in numbers else None
+
+
+def production_context(title, summary, season):
+    """Keep explicit references to other seasons out of this production's status."""
+    parts = [title]
+    for sentence in re.split(r'(?<=[.!?])\s+|\n|;\s*|\s+(?:maar|terwijl)\s+', summary):
+        mentioned = season_of(sentence)
+        if mentioned is not None and mentioned != season:
+            continue
+        # With several seasons in one clause there is no safe status attribution.
+        if len(season_numbers(sentence)) > 1:
+            continue
+        parts.append(sentence)
+    return '\n'.join(parts)
 
 def kind_of(text, season):
     if season and season > 1:
@@ -96,6 +115,15 @@ def extract_name(a):
     for pattern in patterns:
         m = re.search(pattern, text, re.I if 'A-Z' not in pattern else 0)
         if m:
+            # Preserve a longer name containing e.g. "op" or "met" only when
+            # the body repeats it. A headline alone is insufficient evidence.
+            full = re.split(r'\s+(?:aangekondigd|krijgt|keert|wordt|is|vanaf|binnenkort)\b', m.group(1), maxsplit=1, flags=re.I)[0].strip(' \"\'‘’“”.,:;!?')
+            if (2 <= len(full) <= 85 and full[0].isupper()
+                    and re.search(r'\s+(?:op|met|over)\s+', full, re.I)
+                    and not re.search(r'\b(?:op|bij|met)\s+(?:Videoland|Netflix|NPO|RTL|SBS6|Net5|Prime Video|Disney|HBO|de hoofdrol|bekende acteurs)\b', full, re.I)
+                    and ' '+normalize(full)+' ' in ' '+normalize(a.get('summary',''))+' '
+                    and tidy_name(full)):
+                return full
             candidate = tidy_name(m.group(1))
             # A quoted adjective or a creator's other series is not a title.
             if candidate and not re.search(r'makers|producent|regisseur', text[m.end():m.end()+15], re.I):
@@ -119,7 +147,6 @@ def assess(a, known):
     text = title + '\n' + a.get('summary','')
     season = season_of(title)
     kind = kind_of(title, season)
-    phase, evidence = phase_of(text)
     name = extract_name(a)
     normalized = ' ' + normalize(title) + ' '
     matches = [v for k,v in known.items() if ' ' + k + ' ' in normalized]
@@ -132,14 +159,16 @@ def assess(a, known):
             name = n
     if len(matches) > 1:
         name = ''
-    if name and kind=='Onbekend' and not re.search(r'makers|team achter',title,re.I):
+    if name and (kind=='Onbekend' or season is None) and not re.search(r'makers|team achter',title,re.I):
         # Use only a sentence naming this title, never a sidebar's other show.
         for sentence in re.split(r'(?<=[!?])\s+|(?<=[.])\s+(?=[A-ZÀ-Ý])|\n',a.get('summary','')):
-            if normalize(name) not in normalize(sentence):continue
+            if ' '+normalize(name)+' ' not in ' '+normalize(sentence)+' ':continue
             candidate_season=season_of(sentence)
             candidate_kind=kind_of(sentence,candidate_season)
             if candidate_kind!='Onbekend':
+                if kind!='Onbekend' and candidate_kind!=kind:continue
                 kind=candidate_kind;season=candidate_season;break
+    phase, evidence = phase_of(production_context(title, a.get('summary',''), season or (1 if kind=='Nieuwe serie' else None)))
     rejected = noise_reason(a)
     if re.search(r'\b(?:Britse|Amerikaanse|Duitse|Deense|Zweedse|Spaanse|buitenlandse)\b.{0,30}serie', title, re.I):
         rejected = 'Buitenlandse serie; geen Nederlandse productie vastgesteld'

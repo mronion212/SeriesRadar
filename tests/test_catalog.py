@@ -5,6 +5,30 @@ def article(id, title, published='2026-09-01T12:00:00+00:00', **extra):
     return {'id':id,'title':title,'url':'https://example.org/'+id,'summary':'','publisher':'Pers','source':'test','published':published,'discovered':'2026-09-11T12:00:00+00:00','phase':'Te beoordelen','reviewed':0,'classification_reviewed':0,'series_title':'','tvdb':0,'notes':'','excluded':0,**extra}
 
 class CatalogTests(unittest.TestCase):
+    def test_full_name_with_preposition_confirmed_in_body(self):
+        a=article('1','Nieuwe Nederlandse serie Oog op Morgen aangekondigd',
+                  summary='Oog op Morgen is een Nederlandse dramaserie.')
+        self.assertEqual(catalog.extract_name(a),'Oog op Morgen')
+        a=article('2','Nieuwe serie Teststad op Videoland aangekondigd',
+                  summary='De serie Teststad op Videoland krijgt acht afleveringen.')
+        self.assertEqual(catalog.extract_name(a),'Teststad')
+
+    def test_season_number_in_body_completes_new_season_headline(self):
+        a=article('1',"Nederlandse serie 'Teststad' krijgt nieuw seizoen",
+                  summary='Het derde seizoen van Teststad is aangekondigd. Het tweede seizoen is nu te zien op Videoland.')
+        p=catalog.catalog([a])['series'][0]['productions'][0]
+        self.assertEqual((p['season'],p['status']),(3,'Aangekondigd'))
+
+    def test_previous_season_availability_does_not_release_next_season(self):
+        a=article('1',"Nederlandse serie 'Teststad' krijgt tweede seizoen",
+                  summary='Het eerste seizoen is nu te zien op Videoland, terwijl het tweede seizoen in ontwikkeling is.')
+        p=catalog.catalog([a])['series'][0]['productions'][0]
+        self.assertEqual((p['season'],p['status']),(2,'Aangekondigd'))
+
+    def test_numeric_ordinals_and_ambiguous_seasons(self):
+        self.assertEqual(catalog.season_of('Het 13e seizoen'),13)
+        self.assertIsNone(catalog.season_of('seizoen 1 en seizoen 2'))
+
     def test_same_series_groups_without_mixing_seasons(self):
         rows=[article('1',"Nieuwe Nederlandse serie 'Teststad' vanaf vandaag te streamen",'2026-01-01T12:00:00+00:00'),article('2',"Nederlandse serie 'Teststad' krijgt tweede seizoen",'2026-09-01T12:00:00+00:00')]
         groups=catalog.catalog(rows)['series']

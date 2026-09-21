@@ -182,6 +182,11 @@ sudo docker compose -p aio --profile seriesradar up -d --build --no-deps seriesr
 ```
 
 Een GitHub-push bouwt en test in CI; bovenstaande opdracht werkt de draaiende VPS-container bij.
+
+### Verbeterde herkenning en uitleesvolgorde
+
+Ongelezen directe artikelen krijgen bij de beperkte scanrondes voorrang. Daarna worden de langst niet gecontroleerde artikelen opnieuw geprobeerd. Atom-feeds leveren hun volledige inhoud wanneer beschikbaar. Langere titels met ‘op’, ‘met’ of ‘over’ kunnen behouden blijven als de artikeltekst die titel herhaalt. Een seizoennummer uit een zin die de serie noemt kan een ongenummerde seizoensaankondiging aanvullen. Expliciete verwijzingen naar andere seizoenen worden uit de statuscontext gefilterd; dit blijft tekstherkenning en geen garantie bij ingewikkelde of tegenstrijdige artikelen.
+
 # AI-onderzoek en bronactualiteit
 
 ## Zonder API-tegoed

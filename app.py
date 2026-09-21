@@ -119,7 +119,7 @@ def parse_feed(data):
         ns = '{http://www.w3.org/2005/Atom}'
         for item in root.findall(ns + 'entry'):
             link = item.find(ns + 'link')
-            yield {'title': clean(item.findtext(ns+'title')), 'url': link.get('href', '') if link is not None else '', 'summary': clean(item.findtext(ns+'summary')), 'published': item.findtext(ns+'published') or item.findtext(ns+'updated'), 'publisher': ''}
+            yield {'title': clean(item.findtext(ns+'title')), 'url': link.get('href', '') if link is not None else '', 'summary': clean(item.findtext(ns+'content') or item.findtext(ns+'summary')), 'published': item.findtext(ns+'published') or item.findtext(ns+'updated'), 'publisher': ''}
     else:
         for item in items:
             yield {'title': clean(item.findtext('title')), 'url': (item.findtext('link') or '').strip(), 'summary': clean(item.findtext('{http://purl.org/rss/1.0/modules/content/}encoded') or item.findtext('description')), 'published': item.findtext('pubDate'), 'publisher': clean(item.findtext('source'))}
@@ -384,7 +384,9 @@ def record_check(key,error=None):
 def enrich_articles(limit=8):
     """Bounded direct-page reads, including older stored fragments; errors back off a day."""
     with connect() as c:
-        rows=[dict(r) for r in c.execute('SELECT * FROM articles WHERE excluded=0 ORDER BY published DESC')]
+        rows=[dict(r) for r in c.execute('''SELECT a.* FROM articles a
+            LEFT JOIN enrichment_checks e ON e.key='article:' || a.id
+            WHERE a.excluded=0 ORDER BY e.checked IS NOT NULL, e.checked ASC, a.published DESC''')]
     count=0
     for a in rows:
         if count>=limit:break
