@@ -11,6 +11,7 @@
     "query": "(site:rtl.nl OR site:videoland.com) (serie OR seizoen OR drama OR comedy OR thriller OR misdaad OR documentaire OR docuserie OR reality OR \"reality programma\" OR realityshow OR realityhit OR survivalprogramma OR spelprogramma OR datingexperiment OR gameshow OR spelshow OR quiz OR partygame OR talentenjacht OR datingprogramma OR \"nieuw programma\" OR \"binnenkort te zien\" OR opnames OR première) when:180d",
     "kind": "Google Nieuws",
     "initial_urls": [
+      "https://www.rtl.nl/boulevard/artikel/5644796/edson-da-graca-monica-geuze-presenteren-spelshow-nederlands-domste",
       "https://www.rtl.nl/boulevard/artikel/5595474/nieuwe-kandidaten-ass-anti-survival-show",
       "https://www.rtl.nl/boulevard/artikel/5624868/deze-koppels-wagen-zich-ultieme-relatietest-undercover-lover"
     ]
@@ -78,6 +79,7 @@
     "query": "site:tvgids.nl (serie OR seizoen OR drama OR comedy OR thriller OR misdaad OR documentaire OR docuserie OR reality OR \"reality programma\" OR realityshow OR realityhit OR survivalprogramma OR spelprogramma OR datingexperiment OR gameshow OR spelshow OR quiz OR partygame OR talentenjacht OR datingprogramma OR \"nieuw programma\" OR \"binnenkort te zien\" OR opnames OR première) when:180d",
     "kind": "Google Nieuws",
     "initial_urls": [
+      "https://www.tvgids.nl/nieuws/reality/dit-is-de-startdatum-van-het-nieuwe-net5-programma-wedding-in-a-week",
       "https://www.tvgids.nl/binge-kijktip/4070132/undercover-lover",
       "https://www.tvgids.nl/nieuws/televisie/wil-je-met-me-bouwen-linda-amusement-datingprogramma-net-5-2026-09-14"
     ]
@@ -109,6 +111,7 @@
     "query": "(site:veronicasuperguide.nl OR site:serietotaal.nl OR site:nieuws.nl OR site:mediacourant.nl) (serie OR seizoen OR drama OR comedy OR thriller OR misdaad OR documentaire OR docuserie OR reality OR \"reality programma\" OR realityshow OR realityhit OR survivalprogramma OR spelprogramma OR datingexperiment OR gameshow OR spelshow OR quiz OR partygame OR talentenjacht OR datingprogramma OR \"nieuw programma\" OR \"binnenkort te zien\" OR opnames OR première) when:180d",
     "kind": "Google Nieuws",
     "initial_urls": [
+      "https://showbizznetwork.nl/nieuws/artikel/77178/edson-da-graca-en-monica-geuze-presenteren-nieuwe-tvquiz-nederlands-domste",
       "https://www.veronicasuperguide.nl/dating-reality/wolven-wakkerdam-serie-npo-disneyplus-deelnemers~4d74bd8"
     ]
   },
@@ -140,6 +143,7 @@
     "query": "(site:nlziet.nl/nl/programma OR site:tvblik.nl OR site:streamz.be OR site:ziggo.nl/entertainment OR site:rtl.nl OR site:tvgids.nl OR site:filmvandaag.nl) (serie OR seizoen OR gameshow OR programma) (\"nu te streamen\" OR \"sinds\" OR \"nu te zien\" OR \"vanaf vandaag\") (Videoland OR Nederlandse OR NPO) when:180d",
     "kind": "Google Nieuws",
     "initial_urls": [
+      "https://tvblik.nl/wil-je-met-me-bouwen",
       "https://www.ziggo.nl/entertainment/series/basta",
       "https://www.ziggo.nl/entertainment/series/wolven",
       "https://www.nlziet.nl/nl/programma/ass-anti-survival-show/",

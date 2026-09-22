@@ -76,6 +76,7 @@ def extract(text, name, url):
         for pattern in patterns_for_key:
             m=re.search(pattern,text,re.I if key!='cast' or pattern.startswith('(?:') else 0)
             if not m: continue
+            if key=='episodes' and re.search(r'\b(?:na|eerste|laatste)\s*$',text[:m.start()],re.I):continue
             value=re.split(r',?\s+(?:bekend van|de makers van|en geregisseerd|en geschreven|in deze|waarin|waarbij|naast|voor deze)\b',m.group(1),maxsplit=1,flags=re.I)[0]
             if key in ('cast','directors','writers','creators','producers','production_companies','distributors'):
                 value=re.sub(r'\([^)]*\)','',value)
@@ -105,13 +106,29 @@ def extract(text, name, url):
     if m:add('release_year',m.group(1),m.group(0))
     numbers={'een':1,'twee':2,'drie':3,'vier':4,'vijf':5,'zes':6,'zeven':7,'acht':8,'negen':9,'tien':10,'elf':11,'twaalf':12}
     m=re.search(r'\b('+ '|'.join(numbers)+r')(?:delige| afleveringen)\b',text,re.I)
-    if m:add('episodes',str(numbers[m.group(1).lower()]),m.group(0))
+    if m and not re.search(r'\b(?:na|eerste|laatste)\s*$',text[:m.start()],re.I):add('episodes',str(numbers[m.group(1).lower()]),m.group(0))
     m=re.search(r'(?:^|\n)Synopsis\s*:?\s+([^\n]+)',text,re.I)
     if m:add('synopsis',m.group(1)[:6000], 'Synopsis uit de bron; herschrijven voor inzending')
     genres={'drama':r'dramaserie|drama-serie','Comedy':r'comedy|komedie|sitcom','Thriller':r'thrillerserie','Misdaad':r'misdaadserie','Documentaire':r'documentaireserie|docuserie','Reality':r'reality[- ]?(?:serie|programma|show|hit)|survivalprogramma|datingexperiment|datingprogramma','Spelshow':r'gameshow|spelshow|spelprogramma|quiz','Animatie':r'animatieserie'}
     found=[k for k,p in genres.items() if re.search(r'\b(?:'+p+r')\b',text,re.I)]
     if found:add('genres','\n'.join(found),'Expliciete genrevermelding in artikel')
     if re.search(r'\b(?:gameshow|spelshow|spelprogramma|quiz)\b',text,re.I):add('format','Spelshow','Spelprogramma genoemd in artikel')
+    # Common prose credits, in addition to labelled press-kit fields.
+    person=r'[A-ZÀ-Ý][\wÀ-ÿ]+(?: (?:[A-ZÀ-Ý][\wÀ-ÿ]+|da|de|van|der|den)){1,5}'
+    m=re.search(r'('+person+r'(?: en '+person+r')?) (?:presenteren|presenteert)\b',text)
+    if m:add('presenters',m.group(1).replace(' en ','\n'),m.group(0))
+    m=re.search(r'\b(Nederlandse|Belgische|Vlaamse) (?:[\w-]+ ){0,2}(?:serie|spelshow|quiz|realityprogramma|datingprogramma)\b',text,re.I)
+    if m:add('countries','Nederland' if m.group(1).lower()=='nederlandse' else 'België',m.group(0))
+    m=re.search(r'\b(reality[- ]?(?:programma|show|serie|experiment)|datingprogramma|liefdesexperiment|documentaireserie|dramaserie)\b',text,re.I)
+    if m:
+        add('format',m.group(1),m.group(0))
+        if re.search('reality|dating|liefdes',m.group(1),re.I):add('genres','Reality',m.group(0))
+    if 'synopsis' not in facts:
+        for paragraph in text.splitlines():
+            if (60<=len(paragraph)<=1800 and normalize(name) in normalize(paragraph)
+                    and re.search(r'\bis een\b|\b(?:volgen|volgt|draait|zoeken|ontdekken|strijden|nemen|spelen)\b',paragraph,re.I)):
+                add('synopsis',paragraph,'Beschrijving uit de bron; herschrijven voor inzending')
+                break
     return facts
 
 
@@ -144,8 +161,11 @@ def tvdb_facts(markup, name, url):
 class ArticleParser(HTMLParser):
     def __init__(self):
         super().__init__();self.paragraphs=[];self.headings=[];self.descriptions=[];self.title='';self.capture=None;self.buffer=[];self.skip=0;self.is_script=False;self.script=[];self.schemas=[]
+        self.divs=[];self.main_paragraphs=[];self.section_headings=[]
     def handle_starttag(self,tag,attrs):
         attrs=dict(attrs)
+        if tag=='div':
+            self.divs.append(bool(self.divs and self.divs[-1]) or attrs.get('itemprop')=='articleBody' or bool(re.search(r'\b(?:detailpage__detailtext|article-body|article__body|article-content)\b',attrs.get('class',''))))
         if tag=='meta' and (attrs.get('name')=='description' or attrs.get('property')=='og:description') and attrs.get('content'):
             self.descriptions.append(attrs['content'])
         if tag=='script':
@@ -154,6 +174,7 @@ class ArticleParser(HTMLParser):
         if not self.skip and tag in ('p','h1','h2','title'):
             self.capture=tag;self.buffer=[]
     def handle_endtag(self,tag):
+        if tag=='div' and self.divs:self.divs.pop()
         if tag=='script' and self.is_script:
             try:self.schemas.append(json.loads(''.join(self.script)))
             except ValueError:pass
@@ -162,16 +183,27 @@ class ArticleParser(HTMLParser):
         if self.capture==tag:
             value=re.sub(r'\s+',' ',''.join(self.buffer)).strip()
             if tag=='h1':self.headings.append(value)
+            if tag=='h2':self.section_headings.append(value)
             if tag=='title':self.title=value
-            if tag in ('p','h2'):self.paragraphs.append(value)
+            if tag in ('p','h2'):
+                self.paragraphs.append(value)
+                if self.divs and self.divs[-1]:self.main_paragraphs.append(value)
             self.capture=None
     def handle_data(self,data):
         if self.is_script:self.script.append(data)
         if not self.skip and self.capture:self.buffer.append(data)
     def text_for(self,name):
         if normalize(name) not in normalize(' '.join(self.headings) or self.title):
-            raise ValueError('De paginatitel noemt deze serie niet. Controleer of dit de juiste bron is.')
-        text='\n'.join(self.headings+list(dict.fromkeys(self.descriptions))+self.paragraphs)
+            # A roundup can supply a clearly delimited programme section.
+            for i,paragraph in enumerate(self.paragraphs):
+                if (normalize(paragraph)==normalize(name) or re.match(re.escape(name)+r'\s*[,–—:]\s*(?:vanaf|op)\b',paragraph,re.I)):
+                    section=[paragraph]
+                    for following in self.paragraphs[i+1:]:
+                        if following in self.section_headings or re.match(r'.{2,85}?,\s*(?:vanaf|op)\b',following,re.I):break
+                        section.append(following)
+                    if len(section)>1:return '\n'.join(section)[:60000]
+            raise ValueError('De pagina bevat geen afgebakend artikel of onderdeel over deze serie.')
+        text='\n'.join(self.headings[:1]+list(dict.fromkeys(self.descriptions))+(self.main_paragraphs or self.paragraphs))
         for schema in self.schemas:
             nodes=schema if isinstance(schema,list) else schema.get('@graph',[schema]) if isinstance(schema,dict) else []
             for node in nodes:

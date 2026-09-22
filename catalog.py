@@ -26,6 +26,9 @@ def headline(a):
     return text.strip()
 
 def phase_of(text):
+    aired = re.search(r'\bwerd uitgezonden (?:op|door)\b[^\n.]{0,100}',text,re.I)
+    if aired and not re.search(r'gaat niet door|geannuleerd|stopgezet',text,re.I):
+        return 'Beschikbaar', aired.group(0)
     rules = [
         ('Onbekend', r'gaat niet door|geannuleerd|stopgezet|opnames?\b.{0,50}uitgesteld'),
         ('Beschikbaar', r'vanaf vandaag (?:te zien|te streamen|beschikbaar)|(?:nu|inmiddels|al) (?:volledig )?te (?:zien|streamen)|nu beschikbaar|is (?:nu )?(?:verschenen|uitgebracht)|vandaag (?:te zien|te streamen)|sinds\b.{0,100}?(?:op|bij) (?:Videoland|Netflix|NPO|Prime Video)|in zijn geheel te streamen|is te (?:zien|streamen) (?:op|bij|via) (?:\(o\.a\.\) )?(?:Prime Video|Videoland|Netflix|NPO|Net5|SBS6|NLZIET|Streamz)|kijk .{0,80} terug (?:op|bij|via) NLZIET'),
@@ -93,11 +96,13 @@ def tidy_name(value):
     value = value.strip(' \"\'‘’“”.,:;!?')
     if not 2 <= len(value) <= 85 or len(value.split()) > 12:
         return ''
+    if normalize(value) in ORDINALS or re.fullmatch(r'(?:\d+(?:e|de|ste)?|nieuw|nieuwe|seizoen|serie)',value,re.I):
+        return ''
     if not value[0].isupper() or re.match(r'^(?:De|Het|Een)?\s*(?:nieuwe|Nederlandse|Netflix|Videoland|NPO|SBS6|MAX|KIJK|VPRO|RTL|Original|over|aan|met|van|dit|deze)\b', value, re.I):
         return ''
     return value.title() if value.isupper() else value
 
-def extract_name(a):
+def extract_name(a, include_body=True):
     """Require a title-shaped phrase immediately after a series noun."""
     text = headline(a)
     quoted = re.search(r'\b' + SERIES_WORD + r'\s*:?\s+[‘’\'“\"]([^‘’\'“\"]{2,85})[‘’\'“\"]', text, re.I)
@@ -133,6 +138,15 @@ def extract_name(a):
     candidate=tidy_name(text)
     if candidate and normalize(candidate)==normalize(text):
         if re.search(SERIES_WORD+r'\s+[‘’\'“\"]?'+re.escape(candidate)+r'(?!\w)',a.get('summary',''),re.I):return candidate
+    if include_body:
+        candidates={}
+        for line in a.get('summary','').splitlines()[:40]:
+            if line.strip()==text:continue
+            # Only explicit programme naming in prose, not arbitrary capitalized words.
+            if not re.search(SERIES_WORD+r'\s+[‘’\'“\"]?[A-ZÀ-Ý]',line):continue
+            found=extract_name({'title':line,'summary':'','publisher':''},include_body=False)
+            if found:candidates[normalize(found)]=found
+        if len(candidates)==1:return next(iter(candidates.values()))
     return ''
 
 def noise_reason(a):
@@ -202,7 +216,7 @@ def catalog(rows):
     known = {}
     for a in rows:
         name = a.get('series_title') or extract_name(a)
-        if name: known.setdefault(normalize(name), name)
+        if name and (a.get('series_title') or tidy_name(name)): known.setdefault(normalize(name), name)
     for a in rows:
         if a.get('classification_reviewed') and a.get('series_title'):
             known[normalize(a['series_title'])] = a['series_title']

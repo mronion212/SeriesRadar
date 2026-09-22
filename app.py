@@ -257,9 +257,11 @@ def ingest(c, source, items):
         if direct and direct['last_success']:
             c.execute('UPDATE articles SET url=?,summary=? WHERE id=?',(item['url'],item['summary'][:12000],key))
             c.execute('INSERT OR REPLACE INTO enrichment_checks (key,checked,error,last_success) VALUES (?,?,NULL,?)',('article:'+key,direct['last_success'],direct['last_success']))
-        name=series_catalog.extract_name(item)
+        # A recurring short feed item must not overwrite facts from a full article.
+        stored=dict(c.execute('SELECT * FROM articles WHERE id=?',(key,)).fetchone())
+        name=stored.get('series_title') or series_catalog.extract_name(stored)
         if name:
-            facts=dossier.extract(item['title']+'\n'+item['summary'],name,item['url'])
+            facts=dossier.extract(stored['title']+'\n'+stored['summary'],name,stored['url'])
             if facts:
                 c.execute('INSERT OR REPLACE INTO article_facts VALUES (?,?)',(key,json.dumps(facts)))
     return added
@@ -303,6 +305,7 @@ def ai_key():
 
 
 def read_article_page(url,name):
+    url=resolve_article_url(url)
     public_url(url)
     with build_opener(PublicRedirect()).open(Request(url,headers={'User-Agent':'SeriesRadar/1.0'}),timeout=25) as r:
         raw=r.read(3_000_001)
@@ -310,6 +313,38 @@ def read_article_page(url,name):
         if 'html' not in r.headers.get('Content-Type',''):raise ValueError('Geen HTML-artikel')
         parser=dossier.ArticleParser();parser.feed(decode_page(raw,r.headers.get_content_charset()))
     return parser.text_for(name)
+
+
+def resolve_article_url(url):
+    """Resolve Google's public article link; no search guesses or access-gate bypass."""
+    public_url(url)
+    if urlparse(url).hostname!='news.google.com':return url
+    with build_opener(PublicRedirect()).open(Request(url,headers={'User-Agent':'SeriesRadar/1.0'}),timeout=20) as r:
+        raw=r.read(3_000_001)
+        if len(raw)>3_000_000:raise ValueError('Doorverwijspagina groter dan 3 MB')
+        final=r.geturl()
+        if urlparse(final).hostname!='news.google.com':return public_url(final)
+        markup=decode_page(raw,r.headers.get_content_charset())
+    attrs={k:html.unescape(v) for k,v in re.findall(r'data-n-a-(id|ts|sg)="([^"]+)"',markup)}
+    if not all(attrs.get(k) for k in ('id','ts','sg')):
+        raise ValueError('Google Nieuws geeft geen directe bronlink terug')
+    context=[['en-US','US',['FINANCE_TOP_INDICES','WEB_TEST_1_0_0'],None,None,1,1,'US:en',None,1,None,None,None,None,None,0,1], 'en-US','US',1,[2,3,4,8],1,0,'655000234',0,0,None,0]
+    payload=['garturlreq',context,attrs['id'],int(attrs['ts']),attrs['sg']]
+    data=urlencode({'f.req':json.dumps([[['Fbv4je',json.dumps(payload),None,'generic']]])}).encode()
+    endpoint='https://news.google.com/_/DotsSplashUi/data/batchexecute'
+    request=Request(endpoint,data=data,headers={'User-Agent':'SeriesRadar/1.0','Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'})
+    with build_opener(PublicRedirect()).open(request,timeout=20) as r:
+        raw=r.read(1_000_001)
+        if len(raw)>1_000_000:raise ValueError('Doorverwijsantwoord te groot')
+    for line in raw.decode('utf-8').splitlines():
+        if not line.startswith('[['):continue
+        for result in json.loads(line):
+            if len(result)>2 and result[:2]==['wrb.fr','Fbv4je'] and isinstance(result[2],str):
+                decoded=json.loads(result[2])
+                if len(decoded)>1 and decoded[0]=='garturlres' and isinstance(decoded[1],str):
+                    target=public_url(decoded[1])
+                    if urlparse(target).hostname!='news.google.com':return target
+    raise ValueError('Google Nieuws kon niet naar een directe bron worden herleid')
 
 
 def run_research(group,profile,key=None,proposals=None):
@@ -387,25 +422,32 @@ def enrich_articles(limit=8):
         rows=[dict(r) for r in c.execute('''SELECT a.* FROM articles a
             LEFT JOIN enrichment_checks e ON e.key='article:' || a.id
             WHERE a.excluded=0 ORDER BY e.checked IS NOT NULL, e.checked ASC, a.published DESC''')]
-    count=0
+    # Work on actual dossiers first; generic international headlines cannot starve them.
+    groups=series_catalog.catalog(rows)['series']
+    selected={a['id'] for g in groups for a in g['articles']}
+    names={a['id']:g['name'] for g in groups for a in g['articles']}
+    rows.sort(key=lambda a:a['id'] not in selected)
+    count=0;visited=set()
     for a in rows:
         if count>=limit:break
-        if urlparse(a['url']).hostname=='news.google.com':
-            if due_check('article:'+a['id']):record_check('article:'+a['id'],'Alleen Google Nieuws-fragment; directe bron nog niet beschikbaar. Gebruik AI-onderzoek of koppel de directe link.')
-            continue
-        name=a.get('series_title') or series_catalog.extract_name(a)
-        if not name or not due_check('article:'+a['id']):continue
+        name=a.get('series_title') or names.get(a['id']) or series_catalog.extract_name(a)
+        domestic=bool(re.search(r'Nederland|Videoland|NET\s*5|SBS\s*6|RTL\s*4|NPO',a['title'],re.I))
+        if (not name and not domestic) or not due_check('article:'+a['id']):continue
+        if a['url'] in visited:continue
+        visited.add(a['url'])
         count+=1
         try:
-            public_url(a['url'])
-            with build_opener(PublicRedirect()).open(Request(a['url'],headers={'User-Agent':'SeriesRadar/1.0'}),timeout=20) as r:
+            url=resolve_article_url(a['url'])
+            with build_opener(PublicRedirect()).open(Request(url,headers={'User-Agent':'SeriesRadar/1.0'}),timeout=20) as r:
                 raw=r.read(3_000_001)
                 if len(raw)>3_000_000:raise ValueError('Pagina groter dan 3 MB')
                 parser=dossier.ArticleParser();parser.feed(decode_page(raw,r.headers.get_content_charset()))
-            text=parser.text_for(name)
-            facts=dossier.extract(text,name,a['url'])
+            text=parser.text_for(name or (parser.headings[0] if parser.headings else parser.title))
+            name=name or series_catalog.extract_name({**a,'summary':text})
+            if not name:raise ValueError('Geen eenduidige programmatitel in het volledige artikel')
+            facts=dossier.extract(text,name,url)
             with connect() as c:
-                c.execute('UPDATE articles SET summary=? WHERE id=?',(text[:12000],a['id']))
+                c.execute('UPDATE articles SET url=?,summary=? WHERE id=?',(url,text[:12000],a['id']))
                 c.execute('INSERT OR REPLACE INTO article_facts VALUES (?,?)',(a['id'],json.dumps(facts)))
             record_check('article:'+a['id'])
         except Exception as exc:record_check('article:'+a['id'],str(exc)[:250])
