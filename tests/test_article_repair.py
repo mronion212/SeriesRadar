@@ -72,6 +72,18 @@ class ArticleRepairTests(unittest.TestCase):
         self.assertEqual(facts['presenters']['value'],'Edson da Graça\nMonica Geuze')
         self.assertNotIn('episodes',facts)
 
+    def test_streaming_programme_page_confirms_availability(self):
+        a=article('1','Wil je met me bouwen?',summary='Het programma Wil je met me bouwen? wordt uitgezonden op NET5 en is te streamen op (o.a.) NLZIET en KIJK.')
+        self.assertEqual(catalog.catalog([a])['series'][0]['productions'][0]['status'],'Beschikbaar')
+
+    def test_revised_date_does_not_inherit_an_old_release_year(self):
+        rows=[article('1','Nieuwe Nederlandse serie Teststad','2026-05-01',summary='Teststad is in 2026 te zien bij NET5.'),
+              article('2','Nieuwe Nederlandse serie Teststad start','2026-09-22',summary='Teststad is vanaf maandag 22 februari te zien bij NET5.')]
+        g=catalog.catalog(rows)['series'][0]
+        fields=dossier.prepare(g,{},{} )[0]['fields']
+        self.assertEqual(fields['release_date']['value'],'22 februari')
+        self.assertNotIn('release_year',fields)
+
     def test_recurring_feed_does_not_replace_full_article_facts(self):
         with tempfile.TemporaryDirectory() as folder,patch.object(app,'DB',Path(folder)/'test.sqlite3'):
             app.init()

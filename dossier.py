@@ -220,8 +220,12 @@ def prepare(group, saved, imported, article_facts=None):
         scope=scope_of(production); candidates={}
         articles=[a for a in group['articles'] if a['id'] in production['articles']]
         for a in reversed(articles):
-            candidates.update(extract(a['title']+'\n'+a['summary'],group['name'],a['url']))
-            candidates.update((article_facts or {}).get(a['id'],{}))
+            fresh={**extract(a['title']+'\n'+a['summary'],group['name'],a['url']),**(article_facts or {}).get(a['id'],{})}
+            if ('release_date' in fresh and 'release_year' not in fresh
+                    and fresh['release_date']['value']!=candidates.get('release_date',{}).get('value')):
+                # Do not combine a revised date with an old announcement's year.
+                candidates.pop('release_year',None)
+            candidates.update(fresh)
         candidates.update(imported.get(scope,{}))
         candidates.setdefault('original_title',{'value':group['name'],'source_url':articles[0]['url'] if articles else '', 'evidence':'Gekoppelde serietitel; controleer de spelling','origin':'automatic'})
         stored=saved.get(scope,{'revision':0,'fields':{}})
