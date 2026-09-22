@@ -93,7 +93,7 @@ def extract(text, name, url):
             break
     network=re.findall(r'(?:bij|op)\s+(AVROTROS|BNNVARA|KRO-NCRV|NPO\s*(?:Zapp|Start|Plus|[123])|SBS\s*6|Net\s*5|RTL\s*[4578]|VRT|Proximus)\b',text,re.I)
     platform_name=r'(?:Videoland|Netflix|Prime Video|Disney\+|HBO Max|SkyShowtime|NPO Start|NPO Plus|NLZIET|Streamz|KIJK)'
-    platform_groups=re.findall(r'(?:bij|op|via)\s+('+platform_name+r'(?:\s+en\s+'+platform_name+r')*)(?!\w)',text,re.I)
+    platform_groups=re.findall(r'(?:bij|op|via)\s+(?:\(?o\.a\.\)?\s+)?('+platform_name+r'(?:\s+en\s+'+platform_name+r')*)(?!\w)',text,re.I)
     platform=[v for group in platform_groups for v in re.split(r'\s+en\s+',group,flags=re.I)]
     if network:add('networks','\n'.join(dict.fromkeys(network)),'Expliciete verwijzing: bij/op '+', '.join(dict.fromkeys(network)))
     if platform:add('platforms','\n'.join(dict.fromkeys(platform)),'Expliciete verwijzing: bij/op '+', '.join(dict.fromkeys(platform)))

@@ -75,6 +75,7 @@ class ArticleRepairTests(unittest.TestCase):
     def test_streaming_programme_page_confirms_availability(self):
         a=article('1','Wil je met me bouwen?',summary='Het programma Wil je met me bouwen? wordt uitgezonden op NET5 en is te streamen op (o.a.) NLZIET en KIJK.')
         self.assertEqual(catalog.catalog([a])['series'][0]['productions'][0]['status'],'Beschikbaar')
+        self.assertEqual(dossier.extract(a['summary'],'Wil je met me bouwen?',a['url'])['platforms']['value'],'NLZIET\nKIJK')
 
     def test_revised_date_does_not_inherit_an_old_release_year(self):
         rows=[article('1','Nieuwe Nederlandse serie Teststad','2026-05-01',summary='Teststad is in 2026 te zien bij NET5.'),
