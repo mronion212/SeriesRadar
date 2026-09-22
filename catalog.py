@@ -6,9 +6,11 @@ import unicodedata
 PHASES = ['Onbekend', 'Aangekondigd', 'Release gepland', 'In productie', 'Geproduceerd', 'Beschikbaar']
 KINDS = ['Onbekend', 'Nieuwe serie', 'Nieuw seizoen']
 MONTHS = 'januari|februari|maart|april|mei|juni|juli|augustus|september|oktober|november|december'
-SERIES_WORD = r'(?:[a-zà-ÿ]*serie|sitcom|gameshow|spelshow|quiz|partygame|[a-zà-ÿ-]*programma|reality[- ]?(?:programma|show|hit|serie)|dating[- ]?experiment|survivalshow|talentenjacht|documentaire)\b'
+SERIES_WORD = r'(?:[a-zà-ÿ]*serie|sitcom|[a-zà-ÿ-]*show|quiz|partygame|[a-zà-ÿ-]*programma|reality[- ]?(?:programma|show|hit|serie)|dating[- ]?experiment|talentenjacht|documentaire)\b'
 ORDINALS = {'eerste':1,'tweede':2,'derde':3,'vierde':4,'vijfde':5,'zesde':6,'zevende':7,'achtste':8,'negende':9,'tiende':10,'elfde':11,'twaalfde':12}
 ALIASES_PHASE = {'Te beoordelen':'Onbekend','Gereleased':'Beschikbaar'}
+NON_TITLES = set(ORDINALS) | {'nu','nieuw','nieuwe','seizoen','serie','in productie','aangekondigd',
+    'npo','rtl','sbs6','net5','videoland','netflix','max','kijk','vpro','eo','powned','kro ncrv','bnnvara','avrotros'}
 
 def normalize(value):
     # A.S.S. – Anti Survival Show and Anti Survival Show denote the same title.
@@ -24,6 +26,24 @@ def headline(a):
     if a.get('publisher'):
         text = text.removesuffix(' - ' + a['publisher'])
     return text.strip()
+
+
+def story_body(a):
+    """Publisher attribution and a repeated feed headline are not title evidence."""
+    title=normalize(headline(a));publisher=a.get('publisher','').strip()
+    lines=[]
+    for line in a.get('summary','').splitlines():
+        if publisher:
+            line=re.sub(r'(?:\s+-)?\s+'+re.escape(publisher)+r'\s*$', '',line,flags=re.I)
+        if normalize(line)!=title:lines.append(line)
+    return '\n'.join(lines)
+
+
+def valid_name(value, publisher=''):
+    key=normalize(value)
+    return (bool(key) and key not in NON_TITLES and key!=normalize(publisher)
+            and not re.search(r'\b\w+\.(?:nl|be|com|org)\b',value,re.I))
+
 
 def phase_of(text):
     aired = re.search(r'\bwerd uitgezonden (?:op|door)\b[^\n.]{0,100}',text,re.I)
@@ -92,30 +112,38 @@ def tidy_name(value):
         return question.group(1).strip()
     value = value.strip(' \"\'‘’“”.,:;!?')
     value = re.sub(r'^(?:de|het)\s+(?=[A-ZÀ-Ý])','',value)
-    value = re.split(r'\s+(?:aangekondigd|gestart|afgerond|binnenkort|van start|in de maak|in duistere|naar het boek|en nóg|en nog|over|met|bij|op|vanaf|in 20\d\d|seizoen|komt|krijgt|keert|toont|vertelt|overtreft|draait|duikt|speelt|laat|wordt|is|te zien|te streamen|bekend|onthuld)\b|[,!?]|\s+-\s+', value, maxsplit=1, flags=re.I)[0]
+    value=re.split(r':\s*(?=[a-zà-ÿ‘’\'“\"])|\s+(?:uitgesteld|wagen|verruilen)\b',value,maxsplit=1)[0]
+    value = re.split(r'\s+(?:aangekondigd|gestart|afgerond|binnenkort|van start|in de maak|in duistere|naar het boek|en nóg|en nog|over|met|bij|op|vanaf|in 20\d\d|seizoen|komt|krijgt|keert|toont|vertelt|overtreft|draait|duikt|speelt|spelen|start|starten|staat|staan|gaat|gaan|volgt|volgen|laat|wordt|is|te zien|te streamen|bekend|onthuld)\b|\s+(?:voor|van)\s+(?:Videoland|Netflix|RTL|SBS6|NPO|NET5)\b|,(?!\s+[A-ZÀ-Ý])|[!?]|(?<![A-Z])\.\s+(?=[A-Z])|\s+-\s+|\s*\(\d{4}', value, maxsplit=1)[0]
+    value=re.sub(r'-serie$','',value,flags=re.I)
     value = value.strip(' \"\'‘’“”.,:;!?')
     if not 2 <= len(value) <= 85 or len(value.split()) > 12:
         return ''
-    if normalize(value) in ORDINALS or re.fullmatch(r'(?:\d+(?:e|de|ste)?|nieuw|nieuwe|seizoen|serie)',value,re.I):
+    if not valid_name(value) or re.fullmatch(r'\d+(?:e|de|ste)?',value,re.I):
         return ''
-    if not value[0].isupper() or re.match(r'^(?:De|Het|Een)?\s*(?:nieuwe|Nederlandse|Netflix|Videoland|NPO|SBS6|MAX|KIJK|VPRO|RTL|Original|over|aan|met|van|dit|deze)\b', value, re.I):
+    if not value[0].isupper() or re.match(r'^(?:De|Het|Een)?\s*(?:nieuwe|Nederlandse|Netflix|Videoland|NPO|SBS6|NET5|MAX|KIJK|VPRO|RTL|Original|over|aan|met|van|dit|deze)\b', value, re.I):
         return ''
     return value.title() if value.isupper() else value
 
 def extract_name(a, include_body=True):
     """Require a title-shaped phrase immediately after a series noun."""
     text = headline(a)
+    body=story_body(a)
+    publisher=a.get('publisher','')
     quoted = re.search(r'\b' + SERIES_WORD + r'\s*:?\s+[‘’\'“\"]([^‘’\'“\"]{2,85})[‘’\'“\"]', text, re.I)
-    if quoted and quoted.group(1)[0].isupper():
+    review_quote=bool(quoted and ':' in quoted.group(0) and (
+        re.search(r'overtreft|reacties|recensie|fans|kijkers',text[:quoted.start()],re.I)
+        or re.search(r'\b(?:is|zijn|was|heeft|hebben|ben|bent)\b',quoted.group(1),re.I)))
+    if quoted and quoted.group(1)[0].isupper() and valid_name(quoted.group(1),publisher) and not review_quote:
         return quoted.group(1).strip()
     patterns = [
-        r'\b' + SERIES_WORD + r'\s*:?\s+[‘’\'“\"]([^‘’\'“\"]{2,85})[‘’\'“\"]',
-        r'\b' + SERIES_WORD + r'\s+([^:]+)$',
+        r'\b' + SERIES_WORD + r'\s+[‘’\'“\"]([^‘’\'“\"]{2,85})[‘’\'“\"]',
+        r'\b' + SERIES_WORD + r'\s+(.+)$',
         r'^([^:]{2,85}):\s*(?:een |de |nieuwe |indringende ).*' + SERIES_WORD,
         r'\bnieuwe?\s+([A-ZÀ-Ý][\wÀ-ÿ]*(?:\s+(?:[A-ZÀ-Ý][\wÀ-ÿ]*|de|het|van|en)){0,6})-serie\b',
         r'\bseizoen\s+(?:\d{1,2}\s+)?(?:van\s+)?[‘’\'“\"]([^‘’\'“\"]+)[‘’\'“\"]',
         r'[‘’\'“\"]([^‘’\'“\"]+)[‘’\'“\"]\s+seizoen\s+\d',
         r'\b(?:nieuw(?:e)?|eerste|tweede|derde|vierde|vijfde) seizoen\s+(?:van\s+)?([^:]+)$',
+        r'\b(?:'+ '|'.join(ORDINALS)+r'|\d+) seizoen van (.+)$',
     ]
     for pattern in patterns:
         m = re.search(pattern, text, re.I if 'A-Z' not in pattern else 0)
@@ -126,12 +154,15 @@ def extract_name(a, include_body=True):
             if (2 <= len(full) <= 85 and full[0].isupper()
                     and re.search(r'\s+(?:op|met|over)\s+', full, re.I)
                     and not re.search(r'\b(?:op|bij|met)\s+(?:Videoland|Netflix|NPO|RTL|SBS6|Net5|Prime Video|Disney|HBO|de hoofdrol|bekende acteurs)\b', full, re.I)
-                    and ' '+normalize(full)+' ' in ' '+normalize(a.get('summary',''))+' '
+                    and ' '+normalize(full)+' ' in ' '+normalize(body)+' '
+                    and not re.search(r'\b(?:bij|voor|van)\s+(?:BNNVARA|RTL|SBS6|Videoland|Netflix|NPO)\b',full,re.I)
                     and tidy_name(full)):
                 return full
             candidate = tidy_name(m.group(1))
+            if re.search(r'\bkondigt\b',text,re.I):candidate=re.sub(r' aan$','',candidate)
+            if re.search(r'\btrapt\b',text,re.I):candidate=re.sub(r' af$','',candidate)
             # A quoted adjective or a creator's other series is not a title.
-            if candidate and not re.search(r'makers|producent|regisseur', text[m.end():m.end()+15], re.I):
+            if candidate and valid_name(candidate,publisher) and not re.search(r'makers|producent|regisseur', text[m.end():m.end()+15], re.I):
                 return candidate
     # Programme pages often have only the title as their h1. Require that the
     # article itself explicitly calls this exact heading a programme or series.
@@ -140,12 +171,20 @@ def extract_name(a, include_body=True):
         if re.search(SERIES_WORD+r'\s+[‘’\'“\"]?'+re.escape(candidate)+r'(?!\w)',a.get('summary',''),re.I):return candidate
     if include_body:
         candidates={}
-        for line in a.get('summary','').splitlines()[:40]:
+        for line in body.splitlines()[:40]:
             if line.strip()==text:continue
             # Only explicit programme naming in prose, not arbitrary capitalized words.
-            if not re.search(SERIES_WORD+r'\s+[‘’\'“\"]?[A-ZÀ-Ý]',line):continue
-            found=extract_name({'title':line,'summary':'','publisher':''},include_body=False)
+            if not re.search(SERIES_WORD+r'\s+[‘’\'“\"]?[A-ZÀ-Ý]|seizoen van [A-ZÀ-Ý]',line):continue
+            found=extract_name({'title':line,'summary':'','publisher':publisher},include_body=False)
             if found:candidates[normalize(found)]=found
+        # "Guy Ritchie's The Gentlemen" is an attribution when another sentence
+        # independently names "The Gentlemen". Never strip possessives blindly
+        # (e.g. Grey's Anatomy is itself a title).
+        candidates={k:n for k,n in candidates.items() if not any(
+            other!=k and k.endswith(' '+other) and re.search(r"[’']s\s+",n)
+            for other in candidates)}
+        named_in_headline=[n for k,n in candidates.items() if ' '+k+' ' in ' '+normalize(text)+' ']
+        if len(named_in_headline)==1:return named_in_headline[0]
         if len(candidates)==1:return next(iter(candidates.values()))
     return ''
 
@@ -162,16 +201,20 @@ def assess(a, known):
     season = season_of(title)
     kind = kind_of(title, season)
     name = extract_name(a)
-    normalized = ' ' + normalize(title) + ' '
-    matches = [v for k,v in known.items() if ' ' + k + ' ' in normalized]
+    normalized=' '+normalize(title)+' '
+    # A one-word title is not evidence when it appears as an ordinary lowercase
+    # word elsewhere in a headline (e.g. Nu, Love, Harmony).
+    capitals={normalize(t) for t in re.findall(r'\w+',title) if t[0].isupper()}
+    matches = [v for k,v in known.items() if (k in capitals if ' ' not in k else ' '+k+' ' in normalized)]
+    matches = [v for v in matches if not re.match(r'^(?:Volledige\s+)?'+re.escape(v)+r'\s+van\b',title,re.I)]
     # Prefer longest match; retain ambiguity for two distinct series.
     matches = [n for n in matches if not any(normalize(n) != normalize(other) and normalize(n) in normalize(other) for other in matches)]
-    if len(matches) == 1:
+    if len(matches) == 1 and (not name or normalize(name)==normalize(matches[0]) or normalize(matches[0]).startswith(normalize(name)+' ')):
         n = matches[0]
         # Don't label a new unnamed show as its creators' previous show.
         if not (re.search(r'makers|team achter', title, re.I) and re.search(r'nieuwe .{0,40}serie', title, re.I)):
             name = n
-    if len(matches) > 1:
+    if len(matches) > 1 and not name:
         name = ''
     if name and (kind=='Onbekend' or season is None) and not re.search(r'makers|team achter',title,re.I):
         # Use only a sentence naming this title, never a sidebar's other show.
@@ -214,9 +257,12 @@ def assess(a, known):
 
 def catalog(rows):
     known = {}
+    publishers={normalize(a.get('publisher','')) for a in rows}
     for a in rows:
-        name = a.get('series_title') or extract_name(a)
-        if name and (a.get('series_title') or tidy_name(name)): known.setdefault(normalize(name), name)
+        manual=a.get('series_title') if a.get('classification_reviewed') or a.get('reviewed') else ''
+        name = manual or extract_name(a)
+        if name and (manual or (valid_name(name) and normalize(name) not in publishers)):
+            known.setdefault(normalize(name), name)
     for a in rows:
         if a.get('classification_reviewed') and a.get('series_title'):
             known[normalize(a['series_title'])] = a['series_title']

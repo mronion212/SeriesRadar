@@ -3,7 +3,7 @@ import json
 import re
 from html.parser import HTMLParser
 from urllib.parse import urlparse
-from catalog import normalize
+from catalog import normalize, extract_name
 
 FIELDS = [
     ('original_title','Oorspronkelijke titel','Basis'),('alternative_titles','Alternatieve titels','Basis'),
@@ -194,6 +194,12 @@ class ArticleParser(HTMLParser):
         if not self.skip and self.capture:self.buffer.append(data)
     def text_for(self,name):
         if normalize(name) not in normalize(' '.join(self.headings) or self.title):
+            heading=self.headings[0] if self.headings else self.title
+            if heading:
+                text=self.text_for(heading)
+                # A teaser headline can omit the title, but the article itself
+                # must explicitly identify it before metadata can be imported.
+                if normalize(extract_name({'title':heading,'summary':text}))==normalize(name):return text
             # A roundup can supply a clearly delimited programme section.
             for i,paragraph in enumerate(self.paragraphs):
                 if (normalize(paragraph)==normalize(name) or re.match(re.escape(name)+r'\s*[,–—:]\s*(?:vanaf|op)\b',paragraph,re.I)):
@@ -211,7 +217,7 @@ class ArticleParser(HTMLParser):
                     text+='\n'+node['description']
                 if isinstance(node,dict) and isinstance(node.get('articleBody'),str) and normalize(name) in normalize(node.get('headline','')):
                     return ('\n'.join(self.headings)+'\n'+node['articleBody'])[:60000]
-        text=re.split(r'\n(?:TVvisie Extra|Onze apps|Meest recente|Gerelateerde berichten|Lees ook|Vacatures|Aanbiedingen)\b',text,flags=re.I)[0]
+        text=re.split(r'\n(?:TVvisie Extra|Onze apps|Meest recente|Gerelateerde berichten|Lees ook|Vacatures|Aanbiedingen|Reacties Netflix Nieuws|Meer populaire artikelen|Meer film- en serienieuws|Elke week het meest gelezen)\b',text,flags=re.I)[0]
         return text[:60000]
 
 def prepare(group, saved, imported, article_facts=None):

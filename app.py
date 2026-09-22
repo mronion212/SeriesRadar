@@ -431,8 +431,11 @@ def enrich_articles(limit=8):
     for a in rows:
         if count>=limit:break
         name=a.get('series_title') or names.get(a['id']) or series_catalog.extract_name(a)
-        domestic=bool(re.search(r'Nederland|Videoland|NET\s*5|SBS\s*6|RTL\s*4|NPO',a['title'],re.I))
-        if (not name and not domestic) or not due_check('article:'+a['id']):continue
+        # Teaser headlines often hide the actual title. Read relevant production
+        # news before deciding its name or country; retain the same request cap.
+        production_news=(series_catalog.kind_of(series_catalog.headline(a),series_catalog.season_of(a['title']))!='Onbekend'
+                         and not series_catalog.noise_reason(a))
+        if (not name and not production_news) or not due_check('article:'+a['id']):continue
         if a['url'] in visited:continue
         visited.add(a['url'])
         count+=1
@@ -442,9 +445,13 @@ def enrich_articles(limit=8):
                 raw=r.read(3_000_001)
                 if len(raw)>3_000_000:raise ValueError('Pagina groter dan 3 MB')
                 parser=dossier.ArticleParser();parser.feed(decode_page(raw,r.headers.get_content_charset()))
-            text=parser.text_for(name or (parser.headings[0] if parser.headings else parser.title))
-            name=name or series_catalog.extract_name({**a,'summary':text})
+            heading=parser.headings[0] if parser.headings else parser.title
+            if not heading:raise ValueError('Geen uitleesbare artikelkop')
+            text=parser.text_for(heading)
+            manual=a.get('series_title') if a.get('classification_reviewed') or a.get('reviewed') else ''
+            name=manual or series_catalog.extract_name({**a,'summary':text}) or name
             if not name:raise ValueError('Geen eenduidige programmatitel in het volledige artikel')
+            text=parser.text_for(name)
             facts=dossier.extract(text,name,url)
             with connect() as c:
                 c.execute('UPDATE articles SET url=?,summary=? WHERE id=?',(url,text[:12000],a['id']))
