@@ -52,7 +52,7 @@ class DiscoveryTests(unittest.TestCase):
         rows.append(article('3','Videoland-serie BASTA krijgt tweede seizoen'))
         group=catalog.catalog(rows)['series'][0]
         self.assertEqual(next(p for p in group['productions'] if p['season']==2)['status'],'Aangekondigd')
-        self.assertEqual(next(p for p in group['productions'] if p['kind']=='Nieuwe serie')['status'],'Aangekondigd')
+        self.assertEqual(next(p for p in group['productions'] if p['kind']=='Nieuwe serie')['status'],'Beschikbaar')
 
     def test_future_release_is_not_streaming_or_completed_filming(self):
         self.assertEqual(catalog.phase_of('BASTA is vanaf vrijdag 4 september in zijn geheel te streamen bij Videoland.')[0],'Release gepland')

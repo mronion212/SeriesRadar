@@ -5,6 +5,31 @@ def article(id, title, published='2026-09-01T12:00:00+00:00', **extra):
     return {'id':id,'title':title,'url':'https://example.org/'+id,'summary':'','publisher':'Pers','source':'test','published':published,'discovered':'2026-09-11T12:00:00+00:00','phase':'Te beoordelen','reviewed':0,'classification_reviewed':0,'series_title':'','tvdb':0,'notes':'','excluded':0,**extra}
 
 class CatalogTests(unittest.TestCase):
+    def test_renewal_keeps_first_season_available_and_ignores_film_roundup(self):
+        rows=[article('first',"Netflix geeft trailer vrij voor Nederlandse serie De Eetclub",'2026-08-19T11:00:00+00:00',
+                      summary='De Eetclub is vanaf 10 september te zien op Netflix.'),
+              article('older','De Eetclub volgende week op Netflix','2026-09-05T09:32:00+00:00',
+                      summary='De Eetclub is vanaf 10 september te zien op Netflix.'),
+              article('renewal','Er komt een tweede seizoen van de Netflix-serie De Eetclub','2026-09-18T08:20:00+00:00',
+                      summary='Goed nieuws voor iedereen die De Eetclub in één ruk heeft uitgekeken: er wordt gewerkt aan een tweede seizoen.'),
+              article('roundup','De serie De Eetclub is zó goed, maar heb je de film ook al gezien?','2026-09-19T08:00:00+00:00',
+                      summary='De Eetclub is ook al verfilmd.'),
+              article('undated','De Eetclub','',summary='De Eetclub op Netflix.',discovered='2026-09-20T00:00:00+00:00')]
+        group=catalog.catalog(rows)['series'][0]
+        self.assertEqual({(p['kind'],p['season'],p['status']) for p in group['productions']},
+                         {('Nieuwe serie',1,'Beschikbaar'),('Nieuw seizoen',2,'Aangekondigd')})
+        self.assertEqual(group['latest_news']['article_id'],'renewal')
+        self.assertEqual(group['updated'],'2026-09-18T08:20:00+00:00')
+
+    def test_first_season_release_in_renewal_story_does_not_release_season_two(self):
+        rows=[article('first','Prime Video toont trailer van reality programma Undercover Lover','2026-07-07T07:00:00+00:00',
+                      summary='Nederlandse reality. Undercover Lover is vanaf 17 juli exclusief te zien op Prime Video.'),
+              article('renewal','Realityshow Undercover Lover krijgt een tweede seizoen','2026-09-25T07:22:00+00:00',
+                      summary='Undercover Lover krijgt een tweede seizoen. Het eerste seizoen van de realityserie was deze zomer op Prime Video te zien.')]
+        by_season={p['season']:p for p in catalog.catalog(rows)['series'][0]['productions']}
+        self.assertEqual(by_season[1]['status'],'Beschikbaar')
+        self.assertEqual(by_season[2]['status'],'Aangekondigd')
+
     def test_full_name_with_preposition_confirmed_in_body(self):
         a=article('1','Nieuwe Nederlandse serie Oog op Morgen aangekondigd',
                   summary='Oog op Morgen is een Nederlandse dramaserie.')

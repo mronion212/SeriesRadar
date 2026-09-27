@@ -51,11 +51,11 @@ def phase_of(text):
         return 'Beschikbaar', aired.group(0)
     rules = [
         ('Onbekend', r'gaat niet door|geannuleerd|stopgezet|opnames?\b.{0,50}uitgesteld'),
-        ('Beschikbaar', r'vanaf vandaag (?:te zien|te streamen|beschikbaar)|(?:nu|inmiddels|al) (?:volledig )?te (?:zien|streamen)|nu beschikbaar|is (?:nu )?(?:verschenen|uitgebracht)|vandaag (?:te zien|te streamen)|sinds\b.{0,100}?(?:op|bij) (?:Videoland|Netflix|NPO|Prime Video)|in zijn geheel te streamen|is te (?:zien|streamen) (?:op|bij|via) (?:\(o\.a\.\) )?(?:Prime Video|Videoland|Netflix|NPO|Net5|SBS6|NLZIET|Streamz)|kijk .{0,80} terug (?:op|bij|via) NLZIET'),
+        ('Beschikbaar', r'vanaf vandaag (?:te zien|te streamen|beschikbaar)|(?:nu|inmiddels|al) (?:volledig )?te (?:zien|streamen)|nu beschikbaar|is (?:nu )?(?:verschenen|uitgebracht)|vandaag (?:te zien|te streamen)|sinds\b.{0,100}?(?:op|bij) (?:Videoland|Netflix|NPO|Prime Video)|in zijn geheel te streamen|is te (?:zien|streamen) (?:op|bij|via) (?:\(o\.a\.\) )?(?:Prime Video|Videoland|Netflix|NPO|Net5|SBS6|NLZIET|Streamz)|kijk .{0,80} terug (?:op|bij|via) NLZIET|\bwas\b.{0,80}?(?:te zien (?:op|bij|via)|(?:op|bij|via) (?:Prime Video|Videoland|Netflix|NPO|Net5|SBS6).{0,20}?te zien)|\bis n[eé]t uit op (?:Netflix|Videoland|Prime Video|NPO)'),
         ('Geproduceerd', r'opnames?\b.{0,90}?(?:afgerond|achter de rug|voltooid)|laatste draaidag|productie (?:is )?(?:afgerond|voltooid)|klaar met (?:de )?opnames'),
         ('In productie', r'opnames?\b.{0,160}?(?:gestart|begonnen|van start)|start(?:en)? (?:met |de )?opnames|in productie|wordt (?:momenteel )?opgenomen'),
         ('Release gepland', r'(?:vanaf|op)\s+(?:(?:maandag|dinsdag|woensdag|donderdag|vrijdag|zaterdag|zondag)\s+)?\d{1,2}\s+(?:'+MONTHS+r')[^\n]{0,100}?(?:te zien|te streamen|beschikbaar)|in 20\d\d te (?:zien|streamen)'),
-        ('Aangekondigd', r'aangekondigd|kondigt .{0,100}?aan|in ontwikkeling|in de maak|nieuwe .{0,50}?serie\b|nieuw(?:e)? seizoen|krijgt .{0,35}?seizoen|releasedatum|startdatum|vanaf \d|binnenkort te|in 20\d\d te zien|verschijnt|komt met'),
+        ('Aangekondigd', r'aangekondigd|kondigt .{0,100}?aan|in ontwikkeling|in de maak|wordt gewerkt aan (?:een )?(?:tweede|nieuw) seizoen|er komt een (?:tweede|nieuw) seizoen|nieuwe .{0,50}?serie\b|nieuw(?:e)? seizoen|krijgt .{0,35}?seizoen|releasedatum|startdatum|vanaf \d|binnenkort te|in 20\d\d te zien|verschijnt|komt met'),
     ]
     for phase, pattern in rules:
         if phase=='Beschikbaar':
@@ -190,8 +190,20 @@ def extract_name(a, include_body=True):
 
 def noise_reason(a):
     text = headline(a)
-    if re.search(r'recensie|kijktips|top\s*\d|best(?:e| bekeken)|meest bekeken|films en series|premièredatums|(?:deze|zes) misdaadseries|internationale topseries|dit zijn alle nieuwe programma.s|archief|kijkcijfer|schiet .{0,30}door het dak|podcast|theaterseizoen|concert|culturele seizoen|wereldtitel|eredivisie|\bserie [ab]\b|voetballer|\bPSV\b|\bAjax\b', text, re.I):
+    if re.search(r'recensie|kijktips|top\s*\d|best(?:e| bekeken)|meest bekeken|films en series|premièredatums|(?:deze|zes) misdaadseries|internationale topseries|dit zijn alle nieuwe programma.s|maar heb je de film|^komt er een seizoen \d+|archief|kijkcijfer|schiet .{0,30}door het dak|podcast|theaterseizoen|concert|culturele seizoen|wereldtitel|eredivisie|\bserie [ab]\b|voetballer|\bPSV\b|\bAjax\b', text, re.I):
         return 'Kijktip, recensie, algemeen overzicht of ander nieuws'
+    return ''
+
+def first_season_release(a, name):
+    """A renewal story can explicitly confirm that its first season has aired."""
+    for sentence in re.split(r'(?<=[.!?])\s+|\n',a.get('summary','')):
+        if not (re.search(r'\beerste seizoen\b',sentence,re.I) or normalize(name) in normalize(sentence)):
+            continue
+        watched=re.search(r'\bin (?:een|één) ruk (?:heeft|hebben) uitgekeken\b',sentence,re.I)
+        if watched:return watched.group(0)
+        if season_of(sentence) not in (None,1):continue
+        phase,evidence=phase_of(sentence)
+        if phase=='Beschikbaar':return evidence
     return ''
 
 def assess(a, known):
@@ -267,6 +279,23 @@ def catalog(rows):
         if a.get('classification_reviewed') and a.get('series_title'):
             known[normalize(a['series_title'])] = a['series_title']
     assessed = [assess(a, known) for a in rows]
+    # Domestic context established in one article also applies to the same exact title.
+    domestic = {normalize(a['name']) for a in assessed if a['name'] and not a['rejection']}
+    for a in assessed:
+        if a['rejection']=='Nederlandse productie nog niet vastgesteld' and normalize(a['name']) in domestic:
+            a['rejection']=''
+    # Unnumbered coverage before a confirmed renewal concerns the original run.
+    renewals={}
+    for a in assessed:
+        if a['kind']=='Nieuw seizoen' and a['season'] and a['season']>1 and not a['rejection'] and a.get('published'):
+            key=normalize(a['name'])
+            renewals[key]=min(renewals.get(key,a['published']),a['published'])
+    for a in assessed:
+        first_renewal=renewals.get(normalize(a['name']))
+        if (a['kind']=='Onbekend' and first_renewal and not a.get('classification_reviewed')
+                and not a['rejection'] and (not a.get('published') or a['published']<first_renewal)
+                and not season_numbers(a['title'])):
+            a['kind']='Nieuwe serie';a['season']=1
     # An unnumbered availability update can describe the sole first-season dossier.
     # Never carry it across several seasons or override a manual classification.
     for a in assessed:
@@ -274,11 +303,6 @@ def catalog(rows):
         siblings=[b for b in assessed if b['name']==a['name'] and b['kind']!='Onbekend' and not b['rejection']]
         if siblings and all(b['kind']=='Nieuwe serie' for b in siblings):
             a['kind']='Nieuwe serie';a['season']=1
-    # Domestic context established in one article also applies to the same exact title.
-    domestic = {normalize(a['name']) for a in assessed if a['name'] and not a['rejection']}
-    for a in assessed:
-        if a['rejection']=='Nederlandse productie nog niet vastgesteld' and normalize(a['name']) in domestic:
-            a['rejection']=''
     groups, inbox, ignored = {}, [], []
     # A series only enters the main catalog with a specific new-series/season signal.
     eligible_names = {normalize(a['name']) for a in assessed if a['name'] and (a['kind']!='Onbekend' or a['status'] in ('Beschikbaar','Release gepland')) and not a['rejection'] and a['is_update']}
@@ -308,7 +332,17 @@ def catalog(rows):
             overrides = [a for a in articles if a.get('classification_reviewed') or re.search(r'gaat niet door|geannuleerd|stopgezet|uitgesteld', a['evidence'], re.I)]
             if overrides and (overrides[0].get('published') or '') >= (latest.get('published') or ''):
                 latest = overrides[0]
+            if kind=='Nieuwe serie' and latest['status']!='Beschikbaar' and not latest.get('classification_reviewed'):
+                for other in group['articles']:
+                    evidence=first_season_release(other,group['name'])
+                    if evidence:
+                        latest={**latest,'status':'Beschikbaar','id':other['id'],'evidence':evidence}
+                        break
             group['productions'].append({'kind':kind,'season':season,'status':latest['status'],'status_article':latest['id'],'evidence':latest['evidence'],'reviewed':bool(latest.get('classification_reviewed')), 'release_hint':next((a['release_hint'] for a in articles if a['release_hint']),''),'articles': [a['id'] for a in articles], 'tvdb':all(a['tvdb'] for a in articles), 'updated':articles[0].get('published') or articles[0]['discovered']})
-        group['updated'] = max(a.get('published') or a['discovered'] for a in group['articles'])
+        news=[a for a in group['articles'] if a['is_update'] and (a['kind']!='Onbekend' or a['status']!='Onbekend')]
+        dated=[a for a in news if a.get('published')]
+        latest_news=max(dated,key=lambda a:(a['published'],a['discovered'])) if dated else max(news or group['articles'],key=lambda a:a['discovered'])
+        group['updated']=latest_news.get('published') or latest_news['discovered']
+        group['latest_news']={'title':latest_news['title'],'published':latest_news.get('published'),'discovered':latest_news['discovered'],'article_id':latest_news['id']}
         group['productions'].sort(key=lambda p:(p['kind']=='Onbekend', -(p['season'] or 0)))
     return {'series':sorted(groups.values(),key=lambda g:g['updated'],reverse=True), 'inbox':inbox, 'ignored':ignored}

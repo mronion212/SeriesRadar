@@ -4,6 +4,28 @@ from test_catalog import article
 import catalog
 
 class DossierTests(unittest.TestCase):
+    def test_renewal_article_credits_and_premise_not_casting_call(self):
+        text=("Realityshow Undercover Lover krijgt een tweede seizoen. Het nieuws werd bekendgemaakt door "
+              "presentatoren Robbert Rodenburg en Kelly Mexy.\nIn Undercover Lover reizen vijf koppels af "
+              "naar een tropisch paradijs, waar ze bij aankomst van elkaar worden gescheiden.\n"
+              "De makers zoeken deelnemers voor het tweede seizoen. Meld je aan, luidt de oproep van producent SimpelZodiak.")
+        facts=dossier.extract(text,'Undercover Lover','https://example.org/renewal')
+        self.assertEqual(facts['production_companies']['value'],'SimpelZodiak')
+        self.assertEqual(facts['presenters']['value'],'Robbert Rodenburg\nKelly Mexy')
+        self.assertTrue(facts['synopsis']['value'].startswith('In Undercover Lover reizen'))
+
+    def test_current_extraction_corrects_old_automatic_article_facts(self):
+        body=('Realityshow Undercover Lover krijgt een tweede seizoen.\n'
+              'In Undercover Lover reizen vijf koppels af naar een tropisch paradijs.\n'
+              'De oproep komt van producent SimpelZodiak.')
+        group={'name':'Undercover Lover','productions':[{'kind':'Nieuw seizoen','season':2,'status':'Aangekondigd','articles':['renewal']}],
+               'articles':[{'id':'renewal','title':'Undercover Lover krijgt een tweede seizoen','summary':body,'url':'https://example.org/renewal'}]}
+        old={'renewal':{'production_companies':{'value':'presentatoren Robbert Rodenburg','source_url':'https://example.org/renewal'},
+                        'synopsis':{'value':'Meld je aan voor seizoen 2','source_url':'https://example.org/renewal'}}}
+        fields=dossier.prepare(group,{}, {},old)[0]['fields']
+        self.assertEqual(fields['production_companies']['value'],'SimpelZodiak')
+        self.assertTrue(fields['synopsis']['value'].startswith('In Undercover Lover reizen'))
+
     def test_previous_credits_and_coproduction_prose_are_not_names(self):
         f=dossier.extract('Teststad is geproduceerd door NewBe in co-productie met AVROTROS en wordt gemaakt door het team achter films. Geregisseerd door Jonathan Elbers (Film Een, Film Twee) en Dennis Bots (Andere Film).','Teststad','https://example.org')
         self.assertEqual(f['production_companies']['value'],'NewBe')

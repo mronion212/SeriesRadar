@@ -4,7 +4,7 @@ Een rustige, Nederlandse webapp voor **nieuwe Nederlandse series en nieuwe seizo
 
 ## Gebruik
 
-- **Series** opent standaard op **Alle producties**. Kies **Nieuw seizoen** of **Alle producties**, filter op status en sorteer op laatste nieuws of titel.
+- **Series** opent standaard op **Alle producties**. Kies **Nieuw seizoen** of **Alle producties**, filter op status en sorteer op laatste relevante, gedateerde productienieuws of titel. De kaart toont de bijbehorende nieuwskop en het seizoen waarop die betrekking heeft.
 - Klik op een serietitel voor het dossier: producties/seizoenen met hun eigen status, de onderbouwing en alle gekoppelde nieuwsartikelen, op publicatiedatum gesorteerd.
 - **Te beoordelen** bevat berichten waarvoor titel, herkomst of nieuwe productie onvoldoende duidelijk is. Met **Beoordelen / koppelen** kies je de serietitel, het type en eventueel het seizoennummer.
 - Gebruik dezelfde serietitel om artikelen te bundelen. Een correctie verplaatst alleen dat artikel. Hoofdletters, leestekens en accenten worden bij het groeperen genegeerd. Verschillende series met dezelfde naam kun je onderscheiden met bijvoorbeeld een jaartal in de titel.
@@ -24,7 +24,7 @@ Een rustige, Nederlandse webapp voor **nieuwe Nederlandse series en nieuwe seizo
 
 Een releasedatum, trailer of verstreken kalenderdatum bewijst **niet** dat de serie geproduceerd of beschikbaar is. De app schuift een status daarom niet automatisch door na een datum. Per vastgestelde productie wordt de verst gevorderde expliciete status gebruikt: een generieke, latere aankondiging maakt afgeronde opnames niet ongedaan. Een minstens even recente handmatige beoordeling of expliciete annulering/uitstel krijgt voorrang. Publicatiedata bepalen de volgorde, niet het moment waarop de crawler een oud bericht vindt.
 
-**Seizoenen blijven gescheiden.** Een beschikbaar seizoen 1 maakt seizoen 2 niet beschikbaar. Een bericht zonder vastgesteld seizoen krijgt een apart blok en verandert de status van een genummerd seizoen niet. Nieuwe series worden als eerste seizoen gegroepeerd. ‘Nieuw seizoen’ zonder nummer blijft een aparte, onzekere groep; koppel die berichten handmatig zodra je het nummer weet.
+**Seizoenen blijven gescheiden.** Een beschikbaar seizoen 1 maakt seizoen 2 niet beschikbaar. Een latere aankondiging voor seizoen 2 wist de bevestigde beschikbaarheid van seizoen 1 niet. Ongenummerde berichten van vóór de eerste bevestigde verlenging worden bij seizoen 1 geplaatst; latere onduidelijke berichten blijven apart. ‘Nieuw seizoen’ zonder nummer blijft een onzekere groep; koppel die berichten handmatig zodra je het nummer weet.
 
 ### Hoe streng is de selectie?
 
@@ -161,7 +161,7 @@ Titelherkenning verwijdert uitgeversnamen en herhaalde feedkoppen voordat de art
 
 Het overzicht vult ultrawide-schermen met extra kaartkolommen. Vanaf 1800 pixels gebruikt het dossier twee sectiekolommen. Mobiele breakpoints blijven behouden. Er zijn geen betaalde AI-oproepen toegevoegd.
 
-Beschikbaarheidsnieuws (zoals ‘sinds vrijdag te zien op Videoland’) wordt apart gezocht. Een bericht zonder seizoennummer mag alleen het enige eerste-seizoendossier bijwerken; bij meerdere seizoenen blijft het apart ter beoordeling. Een toekomstige formulering als ‘vanaf 4 september in zijn geheel te streamen’ betekent Release gepland, niet Beschikbaar. De uitzenddatum is ook zichtbaar op de overzichtskaart.
+Beschikbaarheidsnieuws (zoals ‘sinds vrijdag te zien op Videoland’) wordt apart gezocht. Als een verlengingsartikel expliciet meldt dat het eerste seizoen al te zien was, kan dat de status van seizoen 1 bevestigen zonder seizoen 2 als beschikbaar te markeren. Een toekomstige formulering als ‘vanaf 4 september in zijn geheel te streamen’ betekent Release gepland, niet Beschikbaar. De uitzenddatum is ook zichtbaar op de overzichtskaart.
 
 ## Reality en programma’s zonder bevestigd seizoen
 
