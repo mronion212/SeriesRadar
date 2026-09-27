@@ -4,6 +4,17 @@ from test_catalog import article
 import catalog
 
 class DossierTests(unittest.TestCase):
+    def test_producer_of_series_and_first_season_premise(self):
+        text=('SimpelZodiak is de producent van de serie.\n'
+              'Undercover Lover is vanaf 17 juli te zien op Prime Video. Het programma volgt vijf koppels.\n'
+              'De vijf undercover lovers doen zich in de singles villa voor als vrijgezel, terwijl hun partners vanuit een tweede villa alles volgen.')
+        facts=dossier.extract(text,'Undercover Lover','https://example.org/first')
+        self.assertEqual(facts['production_companies']['value'],'SimpelZodiak')
+        self.assertTrue(facts['synopsis']['value'].startswith('De vijf undercover lovers doen zich'))
+        presenters=dossier.extract('Undercover Lover wordt gepresenteerd door Robbert Rodenburg en Kelly Mexy.',
+                                   'Undercover Lover','https://example.org/first')
+        self.assertEqual(presenters['presenters']['value'],'Robbert Rodenburg\nKelly Mexy')
+
     def test_renewal_article_credits_and_premise_not_casting_call(self):
         text=("Realityshow Undercover Lover krijgt een tweede seizoen. Het nieuws werd bekendgemaakt door "
               "presentatoren Robbert Rodenburg en Kelly Mexy.\nIn Undercover Lover reizen vijf koppels af "

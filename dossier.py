@@ -59,7 +59,7 @@ def extract(text, name, url):
         if not value: return
         facts.setdefault(key,{'value':value,'source_url':url,'evidence':evidence[:350],'origin':'automatic'})
     patterns = {
-        'production_companies': [r'\bproducent\s+([A-Z][\w &-]{1,70})(?=[.,;\n]|\s+(?:en|voor|van|meldt|zegt|laat)\b)',r'(?:geproduceerd|gemaakt) door ([^.\n]+)',r'(?:een productie van|productie(?:bedrijf)?\s*:)\s*([^\n.]+)',r'(?:^|[.\n]\s*)([A-Z][\w &-]{1,70}?) is de producent van (?:de serie|het programma)'],
+        'production_companies': [r'\bproducent\s+(?!van\b|voor\b|is\b)([A-Z][\w &-]{1,70})(?=[.,;\n]|\s+(?:en|voor|van|meldt|zegt|laat)\b)',r'(?:geproduceerd|gemaakt) door ([^.\n]+)',r'(?:een productie van|productie(?:bedrijf)?\s*:)\s*([^\n.]+)',r'(?:^|[.\n]\s*)([A-Z][\w &-]{1,70}?) is de producent van (?:de serie|het programma)'],
         'directors':[r'(?:geregisseerd door|regie (?:(?:is|ligt) )?in handen van|regie\s*:)\s*([^\n.]+)'],
         'writers':[r'(?:scenario is geschreven door|geschreven door|scenario\s*:)\s*([^\n.]+)'],
         'creators':[r'(?:ontwikkeld door|bedacht door|(?:naar |is )?een idee van)\s*([^\n.]+)'],
@@ -80,6 +80,7 @@ def extract(text, name, url):
             value=re.split(r',?\s+(?:bekend van|de makers van|en geregisseerd|en geschreven|in deze|waarin|waarbij|naast|voor deze)\b',m.group(1),maxsplit=1,flags=re.I)[0]
             if key=='production_companies' and re.match(r'(?:de\s+)?(?:presentator(?:en)?|acteur(?:s)?|cast)\b',value,re.I):continue
             if key=='cast':value=re.sub(r'^(?:onder anderen|onder meer|o\.a\.)\s+','',value,flags=re.I)
+            if key=='presenters':value=re.sub(r'\s+en\s+','\n',value,flags=re.I)
             if key in ('cast','directors','writers','creators','producers','production_companies','distributors'):
                 value=re.sub(r'\([^)]*\)','',value)
                 value=re.split(r'\s+(?:in co-?productie met|in opdracht van|en wordt|wordt gemaakt|voor (?:de|het))\b',value,maxsplit=1,flags=re.I)[0]
@@ -131,11 +132,11 @@ def extract(text, name, url):
         candidates=[]
         for paragraph in text.splitlines():
             if (60<=len(paragraph)<=1800 and normalize(name) in normalize(paragraph)
-                    and re.search(r'\bis een\b|\b(?:volgen|volgt|draait|reizen|ontdekken|strijden|nemen|spelen)\b',paragraph,re.I)
+                    and re.search(r'\bis een\b|\b(?:volgen|volgt|draait|reizen|ontdekken|strijden|nemen|spelen)\b|\bdoen zich\b',paragraph,re.I)
                     and not re.search(r'\b(?:deelnemers gezocht|aanmelden|meld je aan|oproep|voor het tweede seizoen zoeken|wanneer het tweede seizoen)\b',paragraph,re.I)):
                 candidates.append(paragraph)
         if candidates:
-            paragraph=max(candidates,key=lambda p:(bool(re.search(r'\bIn\s+'+re.escape(name)+r'\b',p,re.I)),bool(re.search(r'\b(?:volgt|volgen|draait|reizen|strijden)\b',p,re.I)),-len(p)))
+            paragraph=max(candidates,key=lambda p:(not bool(re.search(r'\b(?:vanaf|releasedatum|première|te zien|te streamen)\b',p,re.I)),bool(re.search(r'\bIn\s+'+re.escape(name)+r'\b',p,re.I)),bool(re.search(r'\b(?:volgt|volgen|draait|reizen|strijden|doen zich)\b',p,re.I)),-len(p)))
             add('synopsis',paragraph,'Beschrijving uit de bron; herschrijven voor inzending')
     return facts
 
