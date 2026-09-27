@@ -11,6 +11,21 @@ from test_catalog import article
 
 
 class RealityTests(unittest.TestCase):
+    def test_premiejagers_direct_announcement_creates_own_dossier(self):
+        title="BN'ers opgejaagd door 'Premiejagers' in nieuwe realitycompetitie op SBS6"
+        summary=("Elkaar terugvinden voordat de jagers je vinden: dat is de uitdaging in de nieuwe "
+                 "realitycompetitie 'Premiejagers'. Premiejagers wordt ontwikkeld en geproduceerd "
+                 "door Talpa Studios. Premiejagers is vanaf zaterdag 10 oktober wekelijks om "
+                 "20.00 uur te zien op SBS6.")
+        announcement=article('premiejagers',title,summary=summary,source='talpa')
+        overview=article('overview',"Dit zijn alle nieuwe programma's die komen naar SBS6",
+                         summary='Gooische Vrouwen en Premiejagers komen op SBS6.',source='talpa')
+        self.assertTrue(app.relevant(announcement,'talpa'))
+        result=catalog.catalog([announcement,overview])
+        self.assertEqual([(g['name'],g['productions'][0]['status']) for g in result['series']],
+                         [('Premiejagers','Release gepland')])
+        self.assertEqual([a['id'] for a in result['ignored']],['overview'])
+
     def test_wolven_heading_and_named_body_establish_new_programme(self):
         a=article('wolven','Wolven',url='https://npo.nl/start/serie/wolven/afleveringen/seizoen-22',
                   summary='In het gloednieuwe, psychologische spelprogramma Wolven spelen Nederlanders. Wolven kijk je sinds zaterdag 29 augustus op NPO 1. Streamen via NPO Start en Disney+.')

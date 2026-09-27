@@ -157,7 +157,14 @@ def sources():
     defaults = {s['id']: s for s in json.loads((ROOT / 'sources.json').read_text(encoding='utf-8'))}
     with connect() as c:
         for row in c.execute('SELECT id,config FROM source_config'):
-            defaults[row['id']] = json.loads(row['config'])
+            configured = json.loads(row['config'])
+            # Keep curated one-time backfills when an older database overrides
+            # the search settings for a built-in source.
+            if row['id'] in defaults:
+                initial = defaults[row['id']].get('initial_urls', [])
+                if initial:
+                    configured['initial_urls'] = list(dict.fromkeys(initial + configured.get('initial_urls', [])))
+            defaults[row['id']] = configured
     return list(defaults.values())
 
 def public_url(url):

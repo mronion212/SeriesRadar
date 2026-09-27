@@ -27,6 +27,14 @@ class SourceTests(unittest.TestCase):
         self.assertFalse(found['enabled'])
         self.assertEqual(sum(s['id']=='rtl' for s in app.sources()),1)
 
+    def test_builtin_backfill_survives_saved_search_override(self):
+        source=app.validate_source({'id':'tvvisie','name':'TVvisie','mode':'search','value':'site:tvvisie.be reality','enabled':True})
+        with app.connect() as c:
+            c.execute('INSERT INTO source_config VALUES (?,?)',(source['id'],json.dumps(source)))
+        found=next(s for s in app.sources() if s['id']=='tvvisie')
+        self.assertEqual(found['query'],'site:tvvisie.be reality')
+        self.assertTrue(any('premiejagers' in url for url in found['initial_urls']))
+
     def test_private_url_rejected_including_redirect(self):
         for url in ['http://example.org/feed','https://user:pass@example.org/feed','https://example.org:8080/feed']:
             with self.assertRaises(ValueError): app.public_url(url)

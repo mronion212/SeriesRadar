@@ -6,7 +6,7 @@ import unicodedata
 PHASES = ['Onbekend', 'Aangekondigd', 'Release gepland', 'In productie', 'Geproduceerd', 'Beschikbaar']
 KINDS = ['Onbekend', 'Nieuwe serie', 'Nieuw seizoen']
 MONTHS = 'januari|februari|maart|april|mei|juni|juli|augustus|september|oktober|november|december'
-SERIES_WORD = r'(?:[a-zà-ÿ]*serie|sitcom|[a-zà-ÿ-]*show|quiz|partygame|[a-zà-ÿ-]*programma|reality[- ]?(?:programma|show|hit|serie)|dating[- ]?experiment|talentenjacht|documentaire)\b'
+SERIES_WORD = r'(?:[a-zà-ÿ]*serie|sitcom|[a-zà-ÿ-]*show|quiz|partygame|[a-zà-ÿ-]*programma|reality[- ]?(?:programma|show|hit|serie|competitie)|dating[- ]?experiment|talentenjacht|documentaire)\b'
 ORDINALS = {'eerste':1,'tweede':2,'derde':3,'vierde':4,'vijfde':5,'zesde':6,'zevende':7,'achtste':8,'negende':9,'tiende':10,'elfde':11,'twaalfde':12}
 ALIASES_PHASE = {'Te beoordelen':'Onbekend','Gereleased':'Beschikbaar'}
 NON_TITLES = set(ORDINALS) | {'nu','nieuw','nieuwe','seizoen','serie','in productie','aangekondigd',
@@ -190,7 +190,7 @@ def extract_name(a, include_body=True):
 
 def noise_reason(a):
     text = headline(a)
-    if re.search(r'recensie|kijktips|top\s*\d|best(?:e| bekeken)|meest bekeken|films en series|premièredatums|(?:deze|zes) misdaadseries|internationale topseries|archief|kijkcijfer|schiet .{0,30}door het dak|podcast|theaterseizoen|concert|culturele seizoen|wereldtitel|eredivisie|\bserie [ab]\b|voetballer|\bPSV\b|\bAjax\b', text, re.I):
+    if re.search(r'recensie|kijktips|top\s*\d|best(?:e| bekeken)|meest bekeken|films en series|premièredatums|(?:deze|zes) misdaadseries|internationale topseries|dit zijn alle nieuwe programma.s|archief|kijkcijfer|schiet .{0,30}door het dak|podcast|theaterseizoen|concert|culturele seizoen|wereldtitel|eredivisie|\bserie [ab]\b|voetballer|\bPSV\b|\bAjax\b', text, re.I):
         return 'Kijktip, recensie, algemeen overzicht of ander nieuws'
     return ''
 

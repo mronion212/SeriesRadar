@@ -25,8 +25,11 @@
   {
     "id": "talpa",
     "name": "Talpa & SBS6",
-    "query": "(Talpa OR SBS6 OR Net5 OR KIJK) (serie OR seizoen OR reality OR survivalprogramma OR spelprogramma OR datingprogramma OR kandidaten OR opnames OR trailer) when:180d",
-    "kind": "Google Nieuws"
+    "query": "(Talpa OR SBS6 OR Net5 OR KIJK) (serie OR seizoen OR reality OR realitycompetitie OR survivalprogramma OR spelprogramma OR datingprogramma OR kandidaten OR opnames OR trailer) when:180d",
+    "kind": "Google Nieuws",
+    "initial_urls": [
+      "https://www.talpa.com/nieuws/persbericht/artikelen/bners-opgejaagd-door-premiejagers-in-nieuwerealitycompetitieop-sbs6"
+    ]
   },
   {
     "id": "npo",
@@ -87,9 +90,10 @@
   {
     "id": "tvvisie",
     "name": "TVvisie",
-    "query": "(site:tvvisie.nl OR site:tvvisie.be) (serie OR seizoen OR drama OR comedy OR thriller OR misdaad OR documentaire OR docuserie OR reality OR \"reality programma\" OR realityshow OR realityhit OR survivalprogramma OR spelprogramma OR datingexperiment OR gameshow OR spelshow OR quiz OR partygame OR talentenjacht OR datingprogramma OR \"nieuw programma\" OR \"binnenkort te zien\" OR opnames OR première) when:180d",
+    "query": "(site:tvvisie.nl OR site:tvvisie.be) (serie OR seizoen OR drama OR comedy OR thriller OR misdaad OR documentaire OR docuserie OR reality OR realitycompetitie OR \"reality programma\" OR realityshow OR realityhit OR survivalprogramma OR spelprogramma OR datingexperiment OR gameshow OR spelshow OR quiz OR partygame OR talentenjacht OR datingprogramma OR \"nieuw programma\" OR \"binnenkort te zien\" OR opnames OR première) when:180d",
     "kind": "Google Nieuws",
     "initial_urls": [
+      "https://tvvisie.be/nieuws/nederland/bners-opgejaagd-door-premiejagers-in-nieuwe-realitycompetitie-op-sbs6_142162/",
       "https://tvvisie.nl/streaming/11september2026/opnames-nieuwe-videoland-original-serie-sex-en-de-vinex-van-barry-atsma-en-noortje-herlaar-gestart_142299/"
     ]
   },
