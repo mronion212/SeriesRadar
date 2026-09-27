@@ -25,6 +25,7 @@ Een rustige, Nederlandse webapp voor **nieuwe Nederlandse series en nieuwe seizo
 Een releasedatum, trailer of verstreken kalenderdatum bewijst **niet** dat de serie geproduceerd of beschikbaar is. De app schuift een status daarom niet automatisch door na een datum. Per vastgestelde productie wordt de verst gevorderde expliciete status gebruikt: een generieke, latere aankondiging maakt afgeronde opnames niet ongedaan. Een minstens even recente handmatige beoordeling of expliciete annulering/uitstel krijgt voorrang. Publicatiedata bepalen de volgorde, niet het moment waarop de crawler een oud bericht vindt.
 
 **Seizoenen blijven gescheiden.** Een beschikbaar seizoen 1 maakt seizoen 2 niet beschikbaar. Een latere aankondiging voor seizoen 2 wist de bevestigde beschikbaarheid van seizoen 1 niet. Ongenummerde berichten van vóór de eerste bevestigde verlenging worden bij seizoen 1 geplaatst; latere onduidelijke berichten blijven apart. ‘Nieuw seizoen’ zonder nummer blijft een onzekere groep; koppel die berichten handmatig zodra je het nummer weet.
+Een verlengingsbericht kan het verhaal en de cast van seizoen 1 herhalen. Zulke automatische voorstellen worden alleen aan seizoen 2 gekoppeld wanneer de bron het nieuwe seizoen expliciet aan die gegevens verbindt. Handmatig ingevoerde gegevens blijven behouden.
 
 ### Hoe streng is de selectie?
 

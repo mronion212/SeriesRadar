@@ -35,7 +35,25 @@ class DossierTests(unittest.TestCase):
                         'synopsis':{'value':'Meld je aan voor seizoen 2','source_url':'https://example.org/renewal'}}}
         fields=dossier.prepare(group,{}, {},old)[0]['fields']
         self.assertEqual(fields['production_companies']['value'],'SimpelZodiak')
-        self.assertTrue(fields['synopsis']['value'].startswith('In Undercover Lover reizen'))
+        self.assertNotIn('synopsis',fields)
+
+    def test_renewal_recap_does_not_claim_first_season_cast_or_plot(self):
+        body=('De Eetclub krijgt een tweede seizoen. Welke acteurs terugkeren is nog niet bekend.\n'
+              'De Eetclub draait om Karen en haar gezin in Bergen.\n'
+              'De hoofdrollen worden gespeeld door Loes Haverkort en Remko Vrijdag.')
+        group={'name':'De Eetclub','productions':[{'kind':'Nieuw seizoen','season':2,'status':'Aangekondigd','articles':['renewal']}],
+               'articles':[{'id':'renewal','title':'De Eetclub krijgt een tweede seizoen','summary':body,'url':'https://example.org/renewal'}]}
+        fields=dossier.prepare(group,{}, {},{})[0]['fields']
+        self.assertNotIn('cast',fields)
+        self.assertNotIn('synopsis',fields)
+
+    def test_explicit_new_season_story_remains_available(self):
+        group={'name':'De Eetclub','productions':[{'kind':'Nieuw seizoen','season':2,'status':'Aangekondigd','articles':['story']}],
+               'articles':[{'id':'story','title':'Verhaal van tweede seizoen De Eetclub onthuld',
+                            'summary':'In het tweede seizoen van De Eetclub draait alles om Karen en een nieuw geheim dat de vriendengroep verdeelt.',
+                            'url':'https://example.org/story'}]}
+        fields=dossier.prepare(group,{}, {},{})[0]['fields']
+        self.assertIn('synopsis',fields)
 
     def test_previous_credits_and_coproduction_prose_are_not_names(self):
         f=dossier.extract('Teststad is geproduceerd door NewBe in co-productie met AVROTROS en wordt gemaakt door het team achter films. Geregisseerd door Jonathan Elbers (Film Een, Film Twee) en Dennis Bots (Andere Film).','Teststad','https://example.org')

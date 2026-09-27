@@ -236,6 +236,25 @@ def prepare(group, saved, imported, article_facts=None):
         articles=[a for a in group['articles'] if a['id'] in production['articles']]
         for a in reversed(articles):
             fresh={**(article_facts or {}).get(a['id'],{}),**extract(a['title']+'\n'+a['summary'],group['name'],a['url'])}
+            if production['kind']=='Nieuw seizoen':
+                # A renewal article often recaps season one. Treat creative
+                # credits and story details as season-specific only with an
+                # explicit season reference or a matching headline.
+                from catalog import season_of
+                cues={'synopsis':r'verhaal|plot|inhoud|synopsis',
+                      'cast':r'cast|acteurs?|hoofdrol',
+                      'directors':r'regie|regisseur',
+                      'writers':r'scenario|schrijvers?',
+                      'episodes':r'afleveringen|episodes',
+                      'runtime':r'speelduur|minuten'}
+                for key,cue in cues.items():
+                    if key not in fresh:continue
+                    claim=fresh[key]
+                    context=claim.get('value','')+' '+claim.get('evidence','')
+                    if (season_of(context)==production['season'] or
+                            (season_of(a['title'])==production['season'] and re.search(cue,a['title'],re.I))):
+                        continue
+                    fresh.pop(key)
             if ('release_date' in fresh and 'release_year' not in fresh
                     and fresh['release_date']['value']!=candidates.get('release_date',{}).get('value')):
                 # Do not combine a revised date with an old announcement's year.
