@@ -46,6 +46,19 @@ class RadarTests(unittest.TestCase):
             self.assertEqual(row['phase'], 'Release gepland')
             self.assertEqual(row['tvdb'], 1)
 
+    def test_catalog_cache_reuses_reads_and_refreshes_after_write(self):
+        with patch.object(app, '_build_catalog', wraps=app._build_catalog) as build:
+            first = app.get_catalog()
+            first['series'].append({'name': 'Local mutation'})
+            self.assertEqual(app.get_catalog()['series'], [])
+            self.assertEqual(build.call_count, 1)
+            revision = app.catalog_revision()
+            with app.connect() as c:
+                app.ingest(c, {'id': 'test', 'name': 'Test'}, [{'title': 'Nieuwe Nederlandse serie Teststad aangekondigd', 'url': 'https://example.org/test', 'summary': '', 'published': None, 'publisher': 'Test'}])
+            self.assertGreater(app.catalog_revision(), revision)
+            self.assertEqual(len(app.get_catalog()['series']), 1)
+            self.assertEqual(build.call_count, 2)
+
     def test_classification_and_unknown(self):
         for title, phase in [('Opnames zijn gestart voor nieuwe serie', 'In productie'), ('Nieuwe serie vanaf vandaag te zien', 'Gereleased'), ('Serie vanaf 12 december', 'Release gepland'), ('Interview over een serie','Te beoordelen')]:
             self.assertEqual(app.classify(title)[0],phase)

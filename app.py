@@ -1,7 +1,9 @@
 """SeriesRadar: single-process HTTP server and durable half-hour RSS collector."""
 import base64
+import copy
 import concurrent.futures
 from contextlib import contextmanager
+import gzip
 import hashlib
 import hmac
 import html
@@ -31,10 +33,24 @@ INTERVAL = max(60, int(os.environ.get('SCAN_INTERVAL_SECONDS', '1800')))
 LOCK = threading.Lock()
 WAKE = threading.Event()
 AI_LOCK = threading.Lock()
+CATALOG_LOCK = threading.RLock()
+CATALOG_CACHE = None
+CATALOG_REVISION = 0
+CATALOG_TTL = 60
 PHASES = ['Te beoordelen', 'Aangekondigd', 'In productie', 'Release gepland', 'Gereleased']
 
 def now():
     return datetime.now(timezone.utc).isoformat()
+
+def invalidate_catalog():
+    global CATALOG_CACHE, CATALOG_REVISION
+    with CATALOG_LOCK:
+        CATALOG_CACHE = None
+        CATALOG_REVISION += 1
+
+def catalog_revision():
+    with CATALOG_LOCK:
+        return CATALOG_REVISION
 
 @contextmanager
 def connect():
@@ -44,7 +60,10 @@ def connect():
         with c:
             yield c
     finally:
+        changed = c.total_changes > 0
         c.close()
+        if changed:
+            invalidate_catalog()
 
 def init():
     DB.parent.mkdir(parents=True, exist_ok=True)
@@ -83,6 +102,7 @@ def init():
             if 'last_success' not in {r['name'] for r in c.execute('PRAGMA table_info('+table+')')}:
                 c.execute('ALTER TABLE '+table+' ADD COLUMN last_success TEXT')
                 c.execute('UPDATE '+table+' SET last_success=checked WHERE error IS NULL')
+    invalidate_catalog()
 
 def clean(value):
     return re.sub(r'\s+', ' ', html.unescape(re.sub('<[^>]*>', ' ', value or ''))).strip()
@@ -274,6 +294,16 @@ def ingest(c, source, items):
     return added
 
 def get_catalog():
+    global CATALOG_CACHE
+    with CATALOG_LOCK:
+        key = str(DB)
+        if CATALOG_CACHE and CATALOG_CACHE['key'] == key and CATALOG_CACHE['expires'] > time.monotonic():
+            return copy.deepcopy(CATALOG_CACHE['value'])
+        result = _build_catalog()
+        CATALOG_CACHE = {'key':key,'expires':time.monotonic()+CATALOG_TTL,'value':result}
+        return copy.deepcopy(result)
+
+def _build_catalog():
     with connect() as c:
         articles=[dict(r) for r in c.execute('SELECT * FROM articles ORDER BY published DESC,discovered DESC')]
         saved=[dict(r) for r in c.execute('SELECT * FROM dossier_data')]
@@ -535,9 +565,14 @@ def scheduler():
 class Handler(BaseHTTPRequestHandler):
     def respond(self, status, payload, content_type='application/json; charset=utf-8'):
         body = json.dumps(payload, ensure_ascii=False).encode() if content_type.startswith('application/json') else payload
+        compressed = len(body) > 2048 and 'gzip' in self.headers.get('Accept-Encoding','').lower()
+        if compressed:
+            body = gzip.compress(body, compresslevel=3)
         self.send_response(status)
         self.send_header('Content-Type', content_type)
         self.send_header('Content-Length', str(len(body)))
+        if compressed:self.send_header('Content-Encoding', 'gzip')
+        self.send_header('Vary', 'Accept-Encoding')
         self.send_header('Cache-Control', 'no-store')
         self.send_header('X-Content-Type-Options', 'nosniff')
         self.send_header('Referrer-Policy', 'no-referrer')
@@ -565,9 +600,14 @@ class Handler(BaseHTTPRequestHandler):
             with connect() as c:
                 c.execute('SELECT 1').fetchone()
             return self.respond(200, {'status': 'ok'})
+        if path == '/api/status':
+            with connect() as c:
+                meta=dict(c.execute("SELECT key,value FROM meta WHERE key IN ('last_finished','next_scan')").fetchall())
+            return self.respond(200, {'revision':catalog_revision(),'meta':meta,'scanning':LOCK.locked()})
         if path in ('/admin','/admin/','/api/admin/dashboard') and not self.authorized():
             return
         if path == '/api/dashboard':
+            revision=catalog_revision()
             result=get_catalog()
             with connect() as c:
                 meta=dict(c.execute("SELECT key,value FROM meta WHERE key IN ('last_finished','next_scan')").fetchall())
@@ -581,12 +621,13 @@ class Handler(BaseHTTPRequestHandler):
                 for profile in group['dossiers']:
                     profile['fields'].pop('notes',None)
             result['dossier_fields']=[f for f in result['dossier_fields'] if f['key']!='notes']
-            return self.respond(200, {'series':result['series'],'dossier_fields':result['dossier_fields'],'inbox':[],'ignored':[],'sources':[],'meta':meta,'scanning':LOCK.locked(),'interval':INTERVAL})
+            return self.respond(200, {'series':result['series'],'dossier_fields':result['dossier_fields'],'inbox':[],'ignored':[],'sources':[],'meta':meta,'scanning':LOCK.locked(),'interval':INTERVAL,'revision':revision})
         if path == '/api/admin/dashboard':
+            revision=catalog_revision()
             with connect() as c:
                 statuses = {r['id']: dict(r) for r in c.execute('SELECT * FROM sources')}
                 meta = dict(c.execute('SELECT key,value FROM meta').fetchall())
-            return self.respond(200, {**get_catalog(), 'ai':{'configured':bool(ai_key()),'busy':AI_LOCK.locked(),'model':ai_research.MODEL,'reasoning':ai_research.EFFORT}, 'sources': [{**statuses.get(s['id'], {}), **s} for s in sources()], 'meta': meta, 'scanning': LOCK.locked(), 'interval': INTERVAL})
+            return self.respond(200, {**get_catalog(), 'ai':{'configured':bool(ai_key()),'busy':AI_LOCK.locked(),'model':ai_research.MODEL,'reasoning':ai_research.EFFORT}, 'sources': [{**statuses.get(s['id'], {}), **s} for s in sources()], 'meta': meta, 'scanning': LOCK.locked(), 'interval': INTERVAL,'revision':revision})
         files = {'/': ('index.html', 'text/html; charset=utf-8'), '/admin': ('index.html', 'text/html; charset=utf-8'), '/admin/': ('index.html', 'text/html; charset=utf-8'), '/app.js': ('app.js', 'text/javascript; charset=utf-8'), '/style.css': ('style.css', 'text/css; charset=utf-8'), '/favicon.svg': ('favicon.svg', 'image/svg+xml')}
         if path in files:
             name, kind = files[path]

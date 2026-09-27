@@ -1,5 +1,6 @@
 """Run separately: opens a temporary local HTTP server, uses a disposable DB."""
 import base64
+import gzip
 import json
 import os
 from pathlib import Path
@@ -34,6 +35,8 @@ with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ,{'ADMIN_U
             return exc.code,None
     try:
         assert call('/api/dashboard',auth=False)[0]==200
+        initial_status=call('/api/status',auth=False)[1]
+        assert isinstance(initial_status['revision'],int)
         assert call('/api/admin/dashboard',auth=False)[0]==401
         assert call('/admin',auth=False)[0]==401
         for endpoint in ('/api/dossier/research-package','/api/dossier/research-import','/api/ai/settings','/api/dossier/research','/api/scan','/api/article','/api/dossier','/api/dossier/import','/api/dossier/check-tvdb','/api/source','/api/source/test'):
@@ -53,6 +56,10 @@ with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ,{'ADMIN_U
         assert saved['enabled'] is False
         with app.connect() as c:
             app.ingest(c,{'id':'test','name':'Test'},[{'title':"Nieuwe Nederlandse serie 'Teststad' aangekondigd",'url':'https://example.org/test','summary':'','published':None,'publisher':'Test'}])
+        assert call('/api/status',auth=False)[1]['revision']>initial_status['revision']
+        with urlopen(Request(address+'/api/dashboard',headers={'Accept-Encoding':'gzip'})) as response:
+            assert response.headers['Content-Encoding']=='gzip'
+            assert 'series' in json.loads(gzip.decompress(response.read()))
         group=call('/api/admin/dashboard')[1]['series'][0]
         row=group['articles'][0]
         profile=group['dossiers'][0]

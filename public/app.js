@@ -6,7 +6,7 @@ $('access-link').textContent=isAdmin?'Openbare website ↗':'Beheer →';
 if(isAdmin)document.querySelector('.edition').textContent='Beheeromgeving';
 const phases = ['Onbekend','Aangekondigd','Release gepland','In productie','Geproduceerd','Beschikbaar'];
 const kinds = ['Onbekend','Nieuwe serie','Nieuw seizoen'];
-let state = {series:[],inbox:[],ignored:[],sources:[],meta:{}}, view='series', dossierId=null, loading=false, dossierScope='', dossierTab='overview', editingProfile=null;
+let state = {series:[],inbox:[],ignored:[],sources:[],meta:{}}, view='series', dossierId=null, loading=false, stateRevision=null, polling=false, dossierScope='', dossierTab='overview', editingProfile=null;
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const date = s => s ? new Date(s).toLocaleString('nl-NL',{day:'numeric',month:'short',year:'numeric'}) : 'Datum onbekend';
 const clock = s => s ? new Date(s).toLocaleString('nl-NL',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}) : 'Nog niet';
@@ -23,16 +23,25 @@ async function request(path,data){
 }
 async function load(){
  if(loading)return; loading=true;
- try {state=await request(isAdmin?'/api/admin/dashboard':'/api/dashboard');$('error').hidden=true;render();}
+ try {state=await request(isAdmin?'/api/admin/dashboard':'/api/dashboard');stateRevision=state.revision;$('error').hidden=true;render();}
  catch(e){$('error').textContent=e.message;$('error').hidden=false;}
  finally{loading=false;}
 }
-function render(){
+function renderScanStatus(){
  $('review-count').textContent=state.inbox.length;
  const failures=state.sources.filter(s=>s.enabled!==false&&s.error).length;
  $('scan-status').textContent=state.scanning?'Scan bezig…':`Laatste scan: ${clock(state.meta.last_finished)}${failures?' · '+failures+' bron(nen) met een fout':''}`;
- $('next-scan').textContent=state.scanning?'':state.meta.next_scan?`Volgende scan: ${clock(Number(state.meta.next_scan)*1000)}`:`Interval: ${Math.round(state.interval/60)} minuten`;
+ $('next-scan').textContent=state.scanning?'':state.meta.next_scan?`Volgende scan: ${clock(Number(state.meta.next_scan)*1000)}`:`Interval: ${Math.round((state.interval||1800)/60)} minuten`;
  $('scan').disabled=state.scanning;
+}
+async function poll(){
+ if(polling||loading)return;polling=true;
+ try{const status=await request('/api/status');state.meta=status.meta;state.scanning=status.scanning;renderScanStatus();if(!status.scanning&&(stateRevision===null||status.revision!==stateRevision))await load();}
+ catch(e){$('error').textContent=e.message;$('error').hidden=false;}
+ finally{polling=false;}
+}
+function render(){
+ renderScanStatus();
  $('known-titles').innerHTML=state.series.map(g=>`<option value="${esc(g.name)}"></option>`).join('');
  $('ai-config-status').textContent=state.ai?.configured?'API-sleutel ingesteld.':'Nog geen API-sleutel ingesteld.';
  renderSeries(); renderReview(); renderSources();
@@ -153,7 +162,7 @@ $('metadata-form').onsubmit=async e=>{e.preventDefault();e.submitter.disabled=tr
 $('import-form').onsubmit=async e=>{e.preventDefault();e.submitter.disabled=true;const scope=dossierScope,series_id=dossierId;$('import-status').textContent='Bron uitlezen…';try{const r=await request('/api/dossier/import',{series_id,scope,url:$('import-url').value});$('import-status').textContent=r.found?r.found+' velden gevonden. Bekijk en controleer de voorstellen.':'Geen expliciete metadata gevonden. Je kunt de gegevens handmatig aanvullen.';await load();}catch(e){$('import-status').textContent=e.message;}finally{e.submitter.disabled=false;}};
 $('copy-dossier').onclick=async()=>{try{await navigator.clipboard.writeText($('export-text').value);$('export-status').textContent='Gekopieerd.';}catch{$('export-text').focus();$('export-text').select();$('export-status').textContent='Selectie klaar. Kopieer met Ctrl+C.';}};
 $('download-dossier').onclick=()=>{const g=state.series.find(g=>g.id===dossierId),p=g?.dossiers.find(p=>p.scope===dossierScope);if(!p)return;const url=URL.createObjectURL(new Blob([JSON.stringify({title:g.name,...p,news_sources:g.articles.map(a=>({title:a.title,url:a.url}))},null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download=g.name.replace(/[^a-z0-9]/gi,'-')+'-'+p.scope.replace(':','-')+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
-load();setInterval(load,10000);
+load();setInterval(poll,10000);
 
 $('check-tvdb').onclick=async e=>{e.target.disabled=true;try{await request('/api/dossier/check-tvdb',{series_id:dossierId,scope:dossierScope});await load();}catch(e){$('dossier-tvdb-status').textContent=e.message;}finally{e.target.disabled=false;}};
 
