@@ -11,6 +11,10 @@ from test_catalog import article
 
 
 class RealityTests(unittest.TestCase):
+    def test_tvvisie_mysql_collation_header_decodes_article(self):
+        self.assertEqual(app.decode_page('BN’ers opgejaagd'.encode('windows-1252'),
+                                         'latin1_swedish_ci'),'BN’ers opgejaagd')
+
     def test_premiejagers_direct_announcement_creates_own_dossier(self):
         title="BN'ers opgejaagd door 'Premiejagers' in nieuwe realitycompetitie op SBS6"
         summary=("Elkaar terugvinden voordat de jagers je vinden: dat is de uitdaging in de nieuwe "

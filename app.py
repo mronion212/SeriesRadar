@@ -92,7 +92,7 @@ def decode_page(raw, encoding=None):
     if not encoding:
         match=re.search(rb'charset\s*=\s*["\x27]?([a-zA-Z0-9_-]+)',raw[:4096],re.I)
         encoding=match.group(1).decode('ascii') if match else 'utf-8'
-    if encoding.lower() in ('iso-8859-1','latin-1'):encoding='windows-1252'
+    if encoding.lower() in ('iso-8859-1','latin-1','latin1_swedish_ci'):encoding='windows-1252'
     return raw.decode(encoding,errors='replace')
 
 def classify(title, summary=''):
