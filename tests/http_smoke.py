@@ -86,7 +86,7 @@ with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ,{'ADMIN_U
         assert researched['episodes']['value']=='8' and researched['episodes']['origin']=='ai'
         target={'series_id':group['id'],'scope':profile['scope']}
         assert call('/api/dossier/enrich',target,csrf=False)[0]==403
-        with patch.object(app,'discover_metadata') as discover,patch.object(app,'enrich_articles') as enrich:
+        with patch.object(app,'enrich_tvmaze'),patch.object(app,'discover_metadata') as discover,patch.object(app,'enrich_articles') as enrich:
             assert call('/api/dossier/enrich',target)[0]==202
             for _ in range(100):
                 if not app.LOCK.locked():break

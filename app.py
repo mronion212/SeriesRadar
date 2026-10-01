@@ -26,6 +26,7 @@ import xml.etree.ElementTree as ET
 import catalog as series_catalog
 import dossier
 import ai_research
+import metadata_catalog
 
 ROOT = Path(__file__).parent
 DB = Path(os.environ.get('DATA_DIR', str(ROOT / 'data'))) / 'radar.sqlite3'
@@ -33,6 +34,8 @@ INTERVAL = max(60, int(os.environ.get('SCAN_INTERVAL_SECONDS', '1800')))
 LOCK = threading.Lock()
 WAKE = threading.Event()
 AI_LOCK = threading.Lock()
+TVMAZE_HTTP_LOCK = threading.Lock()
+TVMAZE_LAST_REQUEST = 0
 CATALOG_LOCK = threading.RLock()
 CATALOG_CACHE = None
 CATALOG_REVISION = 0
@@ -419,7 +422,7 @@ def run_research(group,profile,key=None,proposals=None):
 
 def import_metadata(series_id,scope,name,url,allowed_fields=None):
     try:
-        facts,detected,url=read_metadata(name,url)
+        facts,detected,url=read_metadata(name,url,scope)
         expected=scope.split(':')[-1]
         if detected and expected!='?' and int(expected)!=detected and (allowed_fields is None or not set(allowed_fields)<=ai_research.SERIES_FIELDS):
             raise ValueError('Deze bron noemt een ander seizoen. Kies het bijbehorende seizoen in het dossier.')
@@ -441,7 +444,22 @@ def store_metadata(series_id,scope,name,url,facts,allowed_fields=None):
         c.execute('INSERT OR REPLACE INTO dossier_sources (series_id,scope,url,name,facts,checked,error,last_success,field_filter) VALUES (?,?,?,?,?,?,NULL,?,?)',(series_id,scope,url,name,json.dumps(merged),stamp,stamp,json.dumps(sorted(allowed_fields)) if allowed_fields is not None else None))
 
 
-def read_metadata(name,url):
+def read_json_page(url):
+    global TVMAZE_LAST_REQUEST
+    public_url(url)
+    with TVMAZE_HTTP_LOCK:
+        if urlparse(url).hostname=='api.tvmaze.com':
+            time.sleep(max(0,.55-(time.monotonic()-TVMAZE_LAST_REQUEST)))
+            TVMAZE_LAST_REQUEST=time.monotonic()
+        with build_opener(PublicRedirect()).open(Request(url,headers={'User-Agent':'SeriesRadar/1.0 (series metadata)'}),timeout=20) as r:
+            raw=r.read(3_000_001)
+            if len(raw)>3_000_000:raise ValueError('Catalogusantwoord groter dan 3 MB')
+            return json.loads(raw)
+
+
+def read_metadata(name,url,scope=None):
+    if urlparse(url).hostname=='api.tvmaze.com' and re.fullmatch(r'/shows/\d+',urlparse(url).path):
+        return metadata_catalog.facts_for(read_json_page(url),name,scope or 'unknown:?'),None,url
     url=resolve_article_url(url)
     public_url(url)
     req=Request(url,headers={'User-Agent':'SeriesRadar/1.0 (metadata from public press articles)'})
@@ -553,11 +571,13 @@ def discover_metadata(limit=2,page_limit=4,groups=None,refresh_days=7):
         errors=[];success=False
         try:
             items=fetch_source(source)
+            group_pages=0
             for item in items:
                 if pages>=page_limit:break
+                if group_pages>=max(1,page_limit//limit):break
                 if item['url'] in visited:continue
                 if series_catalog.normalize(group['name']) not in series_catalog.normalize(item['title']+' '+item['summary']):continue
-                visited.add(item['url']);pages+=1
+                visited.add(item['url']);pages+=1;group_pages+=1
                 try:
                     facts,season,url=read_metadata(group['name'],item['url'])
                     for profile in group['dossiers']:
@@ -577,6 +597,7 @@ def discover_metadata(limit=2,page_limit=4,groups=None,refresh_days=7):
 
 def run_dossier_enrichment(group):
     try:
+        enrich_tvmaze(limit=1,groups=[group],refresh_days=1)
         discover_metadata(limit=1,page_limit=4,groups=[group],refresh_days=1)
         enrich_articles(limit=4,article_ids={a['id'] for a in group['articles']})
         record_check('dossier-enrich:'+group['id'])
@@ -585,6 +606,7 @@ def run_dossier_enrichment(group):
 
 
 def enrich_catalog():
+    enrich_tvmaze()
     discover_metadata()
     enrich_articles()
     count=0
@@ -592,6 +614,35 @@ def enrich_catalog():
         if count>=4:break
         if not due_check('tvdb:'+group['id'],7):continue
         check_tvdb(group);count+=1
+
+
+def enrich_tvmaze(limit=2,groups=None,refresh_days=7):
+    with connect() as c:
+        checks={r['key']:r['checked'] for r in c.execute("SELECT key,checked FROM enrichment_checks WHERE key LIKE 'tvmaze:%'")}
+    groups=list(groups) if groups is not None else get_catalog()['series']
+    groups.sort(key=lambda g:(checks.get('tvmaze:'+g['id'],''),-len(g['articles'])))
+    count=0
+    for group in groups:
+        if count>=limit:break
+        key='tvmaze:'+group['id']
+        if not due_check(key,refresh_days):continue
+        count+=1
+        try:
+            ids={}
+            for field,external in [('imdb_id','imdb'),('tvdb_id','thetvdb')]:
+                values={p['fields'][field]['value'] for p in group['dossiers'] if p['fields'].get(field,{}).get('value')}
+                if len(values)==1:ids[external]=next(iter(values))
+                elif len(values)>1:raise ValueError('Tegenstrijdige bestaande externe IDs; controleer de serie-identiteit.')
+            result=read_json_page('https://api.tvmaze.com/search/shows?'+urlencode({'q':group['name']}))
+            show=metadata_catalog.match(result,group['name'],ids)
+            url='https://api.tvmaze.com/shows/'+str(show['id'])+'?'+urlencode({'embed[]':['episodes','cast','seasons']},doseq=True)
+            show=read_json_page(url)
+            for profile in group['dossiers']:
+                facts=metadata_catalog.facts_for(show,group['name'],profile['scope'])
+                missing={k:v for k,v in facts.items() if not profile['fields'].get(k,{}).get('value')}
+                if missing:store_metadata(group['id'],profile['scope'],group['name'],url,missing,set(missing))
+            record_check(key)
+        except Exception as exc:record_check(key,str(exc)[:250])
 
 def scan():
     if not LOCK.acquire(blocking=False):

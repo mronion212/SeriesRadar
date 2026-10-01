@@ -202,6 +202,10 @@ In Beheer kun je **Dossier automatisch aanvullen** kiezen om het geopende dossie
 
 De pagina-uitlezing herkent ook lijsten, feitentabellen, definitielijsten en exact passende TVSeries-data in JSON-LD. Bij meerdere producties worden ongenummerde bronnen alleen voor algemene seriegegevens gebruikt; cast, afleveringen en releasedata worden niet naar alle seizoenen gekopieerd. De veldselectie van ontdekte bronnen wordt ook bij latere bronverversingen behouden. Websites met blokkades, een login of uitsluitend JavaScript kunnen nog steeds onleesbaar zijn.
 
+Daarnaast controleert iedere scan maximaal twee serie-identiteiten in de publieke [TVmaze API](https://www.tvmaze.com/api), met maximaal twee verzoeken per serie en een weekcache. De dossierknop kan dit met een dagcache vervroegen. Alleen één exacte titelmatch met originele taal Dutch en overeenkomende bestaande externe IDs wordt gebruikt. Die bron kan ontbrekende taal, genres, netwerk, platform, externe IDs en officiële links aanvullen. Releasedata, expliciet opgegeven afleveringaantallen en afleveringenlijsten blijven per seizoen gescheiden; het aantal gevonden afleveringen wordt niet als definitief totaal gebruikt. Seriebrede cast en synopsis worden alleen toegepast als TVmaze precies één seizoen kent dat met het dossier overeenkomt. Een uitzendland wordt niet als productieland opgeslagen en catalogusdata wijzigen geen productiestatus.
+
+TVmaze-gegevens blijven herkenbaar als bronvoorstel met een link naar TVmaze. Deze gegevens vallen onder [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/); de bronlicentie blijft ook in de JSON-export en tekstexport staan. Nieuwsartikelen en handmatige gegevens hebben hun eigen herkomst.
+
 ## Zonder API-tegoed
 
 Kies in Beheer bij een serie **Onderzoek zonder API**. Dit biedt twee routes:
