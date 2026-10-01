@@ -9,6 +9,46 @@ from test_catalog import article
 
 
 class ResearchTests(unittest.TestCase):
+    def test_pasted_response_accepts_fences_and_explanation_but_rejects_ambiguity(self):
+        result={'series_id':'a','scope':'new:1','title':'Teststad','facts':[]}
+        raw='Dit heb ik gevonden:\n```json\n'+json.dumps(result)+'\n```\nKlaar.'
+        self.assertEqual(ai_research.parse_result(raw),result)
+        for invalid in (json.dumps(result)+json.dumps(result),'{"facts": [', 'Geen JSON'):
+            with self.assertRaises(ValueError):ai_research.parse_result(invalid)
+
+    def test_one_invalid_fact_does_not_block_valid_facts(self):
+        report=[]
+        proposals=[None,{'field':'notes','value':'Privé','source_url':'https://example.org','evidence':'Test'},
+                   {'field':'episodes','value':8,'source_url':'https://example.org','evidence':'Teststad telt acht afleveringen.'}]
+        facts,rejected=ai_research.verify_proposals(proposals,{'name':'Teststad'},{'season':1},lambda *_:'Teststad telt acht afleveringen.',diagnostics=report)
+        self.assertEqual(facts['episodes']['value'],'8')
+        self.assertEqual(rejected,2)
+        self.assertEqual([r['code'] for r in report],['invalid','invalid','confirmed'])
+
+    def test_people_from_multiple_verified_sources_are_merged(self):
+        proposals=[{'field':'cast','value':['Anna | Noor'],'source_url':'https://example.org/a','evidence':'Anna speelt Noor.'},
+                   {'field':'cast','value':'Bas | Jan','source_url':'https://example.org/b','evidence':'Bas speelt Jan.'}]
+        facts,rejected=ai_research.verify_proposals(proposals,{'name':'Teststad'},{'season':1},lambda *_:'Teststad\nAnna speelt Noor. Bas speelt Jan.')
+        self.assertEqual(facts['cast']['value'],'Anna | Noor\nBas | Jan')
+        self.assertEqual(len(facts['cast']['sources']),2)
+        self.assertEqual(rejected,0)
+
+    def test_other_season_elsewhere_on_page_does_not_reject_matching_claim(self):
+        proposals=[{'field':'episodes','value':'8','source_url':'https://example.org','evidence':'Seizoen 2 van Teststad telt acht afleveringen.'}]
+        facts,rejected=ai_research.verify_proposals(proposals,{'name':'Teststad'},{'season':2},lambda *_:'Teststad\nSeizoen 1 was vorig jaar te zien.\nSeizoen 2 van Teststad telt acht afleveringen.')
+        self.assertEqual(facts['episodes']['value'],'8')
+        self.assertEqual(rejected,0)
+
+    def test_conflicting_episode_counts_are_reported(self):
+        report=[]
+        proposals=[{'field':'episodes','value':str(n),'source_url':'https://example.org','evidence':f'Teststad telt {n} afleveringen.'} for n in (8,10)]
+        facts,rejected=ai_research.verify_proposals(proposals,{'name':'Teststad'},{'season':1},lambda *_:'Teststad telt 8 afleveringen. Teststad telt 10 afleveringen.',diagnostics=report)
+        self.assertEqual(facts['episodes']['value'],'8')
+        self.assertEqual((rejected,report[1]['code']),(1,'conflict'))
+
+    def test_empty_research_changes_no_facts(self):
+        self.assertEqual(ai_research.verify_proposals([],{'name':'Teststad'},{'season':1},lambda *_:self.fail('No source needed')),({},0))
+
     def test_report_preserves_blocked_source_for_every_field(self):
         from urllib.error import HTTPError
         proposals=[{'field':field,'value':'Voorstel','source_url':'https://example.org','evidence':'Een letterlijk citaat'} for field in ('cast','directors')]

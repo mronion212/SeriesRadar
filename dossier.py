@@ -94,6 +94,25 @@ def extract(text, name, url):
                 value='\n'.join(names)
             add(key,value,m.group(0))
             break
+    # Press kits and programme pages often use lists or facts tables rather
+    # than full sentences. Keep their explicit labels and values intact.
+    labels={'original_title':'Oorspronkelijke titel','alternative_titles':'Alternatieve titels',
+            'cast':'Cast','directors':'Regie|Regisseur|Regisseurs','writers':'Scenario|Scenarist|Scenaristen',
+            'creators':'Bedenkers','producers':'Producenten','presenters':'Presentatoren|Presentatie',
+            'participants':'Deelnemers','production_companies':'Productiebedrijf',
+            'countries':'Productieland(?:en)?','languages':'Originele taal(?:/talen)?',
+            'genres':'Genres?','networks':'Netwerk|Omroep','platforms':'Streamingplatform',
+            'episodes':'Aantal afleveringen','runtime':'Speelduur(?: per aflevering)?',
+            'release_date':'Premièredatum|Releaseplanning','release_year':'Releasejaar',
+            'synopsis':'Synopsis','format':'Type / formaat','imdb_id':'IMDb-ID','tvdb_id':'TVDB-ID'}
+    for key,label in labels.items():
+        matches=re.findall(r'^(?:'+label+r')\s*:\s*(.+)$',text,re.I|re.M)
+        if matches:
+            value='\n'.join(dict.fromkeys(matches))
+            try:
+                valid=validate_fields({key:{'value':value,'source_url':url,'evidence':matches[0][:350]}})
+            except ValueError:continue
+            facts[key]={**valid[key],'origin':'automatic'}
     network=re.findall(r'(?:bij|op)\s+(AVROTROS|BNNVARA|KRO-NCRV|NPO\s*(?:Zapp|Start|Plus|[123])|SBS\s*6|Net\s*5|RTL\s*[4578]|VRT|Proximus)\b',text,re.I)
     platform_name=r'(?:Videoland|Netflix|Prime Video|Disney\+|HBO Max|SkyShowtime|NPO Start|NPO Plus|NLZIET|Streamz|KIJK)'
     platform_groups=re.findall(r'(?:bij|op|via)\s+(?:\(?o\.a\.\)?\s+)?('+platform_name+r'(?:\s+en\s+'+platform_name+r')*)(?!\w)',text,re.I)
@@ -171,37 +190,63 @@ class ArticleParser(HTMLParser):
     def __init__(self):
         super().__init__();self.paragraphs=[];self.headings=[];self.descriptions=[];self.title='';self.capture=None;self.buffer=[];self.skip=0;self.is_script=False;self.script=[];self.schemas=[]
         self.divs=[];self.main_paragraphs=[];self.section_headings=[]
+        self.captures=[];self.article_depth=0;self.definition_label=''
     def handle_starttag(self,tag,attrs):
         attrs=dict(attrs)
+        if tag=='article':self.article_depth+=1
         if tag=='div':
             self.divs.append(bool(self.divs and self.divs[-1]) or attrs.get('itemprop')=='articleBody' or bool(re.search(r'\b(?:detailpage__detailtext|article-body|article__body|article-content)\b',attrs.get('class',''))))
         if tag=='meta' and (attrs.get('name')=='description' or attrs.get('property')=='og:description') and attrs.get('content'):
             self.descriptions.append(attrs['content'])
         if tag=='script':
             self.is_script=attrs.get('type')=='application/ld+json';self.script=[]
-        if tag in ('script','style','nav','footer'): self.skip+=1
-        if not self.skip and tag in ('p','h1','h2','title'):
-            self.capture=tag;self.buffer=[]
+        if tag in ('script','style','nav','footer','aside'): self.skip+=1
+        if not self.skip and tag in ('br','td','th'):
+            for capture in self.captures:capture['buffer'].append(' : ' if tag in ('td','th') and capture['buffer'] else ' ')
+        if not self.skip and tag in ('p','h1','h2','h3','li','dt','dd','tr','title'):
+            self.captures.append({'tag':tag,'buffer':[],'main':bool(self.article_depth or (self.divs and self.divs[-1]))})
     def handle_endtag(self,tag):
         if tag=='div' and self.divs:self.divs.pop()
         if tag=='script' and self.is_script:
             try:self.schemas.append(json.loads(''.join(self.script)))
             except ValueError:pass
             self.is_script=False
-        if tag in ('script','style','nav','footer') and self.skip:self.skip-=1
-        if self.capture==tag:
-            value=re.sub(r'\s+',' ',''.join(self.buffer)).strip()
+        if tag in ('script','style','nav','footer','aside') and self.skip:self.skip-=1
+        if self.captures and self.captures[-1]['tag']==tag:
+            capture=self.captures.pop()
+            value=re.sub(r'\s+',' ',''.join(capture['buffer'])).strip(' :')
             if tag=='h1':self.headings.append(value)
-            if tag=='h2':self.section_headings.append(value)
+            if tag in ('h2','h3'):self.section_headings.append(value)
             if tag=='title':self.title=value
-            if tag in ('p','h2'):
+            if tag=='dt':self.definition_label=value.rstrip(':')
+            if tag=='dd' and self.definition_label:value=self.definition_label+': '+value
+            if tag in ('p','h2','h3','li','dd','tr') and value:
                 self.paragraphs.append(value)
-                if self.divs and self.divs[-1]:self.main_paragraphs.append(value)
-            self.capture=None
+                if capture['main']:self.main_paragraphs.append(value)
+        if tag=='article' and self.article_depth:self.article_depth-=1
     def handle_data(self,data):
         if self.is_script:self.script.append(data)
-        if not self.skip and self.capture:self.buffer.append(data)
+        if not self.skip:
+            for capture in self.captures:capture['buffer'].append(data)
     def text_for(self,name):
+        schema_text=[]
+        for schema in self.schemas:
+            nodes=schema if isinstance(schema,list) else schema.get('@graph',[schema]) if isinstance(schema,dict) else []
+            for node in nodes:
+                if not isinstance(node,dict):continue
+                types=node.get('@type',[]);types=[types] if isinstance(types,str) else types
+                if 'TVSeries' not in types or normalize(str(node.get('name','')))!=normalize(name):continue
+                def names(value):
+                    if isinstance(value,list):return ', '.join(filter(None,(names(v) for v in value)))
+                    if isinstance(value,dict):return names(value.get('name',''))
+                    return value if isinstance(value,str) else ''
+                schema_text.append(name)
+                mapping={'name':'Oorspronkelijke titel','alternateName':'Alternatieve titels','description':'Synopsis',
+                         'countryOfOrigin':'Productieland','inLanguage':'Originele taal','genre':'Genres',
+                         'actor':'Cast','director':'Regie','creator':'Bedenkers','productionCompany':'Productiebedrijf'}
+                for prop,label in mapping.items():
+                    value=names(node.get(prop,''))
+                    if value:schema_text.append(label+': '+value)
         if normalize(name) not in normalize(' '.join(self.headings) or self.title):
             heading=self.headings[0] if self.headings else self.title
             if heading:
@@ -217,6 +262,7 @@ class ArticleParser(HTMLParser):
                         if following in self.section_headings or re.match(r'.{2,85}?,\s*(?:vanaf|op)\b',following,re.I):break
                         section.append(following)
                     if len(section)>1:return '\n'.join(section)[:60000]
+            if schema_text:return '\n'.join(schema_text)[:60000]
             raise ValueError('De pagina bevat geen afgebakend artikel of onderdeel over deze serie.')
         text='\n'.join(self.headings[:1]+list(dict.fromkeys(self.descriptions))+(self.main_paragraphs or self.paragraphs))
         for schema in self.schemas:
@@ -227,7 +273,7 @@ class ArticleParser(HTMLParser):
                 if isinstance(node,dict) and isinstance(node.get('articleBody'),str) and normalize(name) in normalize(node.get('headline','')):
                     return ('\n'.join(self.headings)+'\n'+node['articleBody'])[:60000]
         text=re.split(r'\n(?:TVvisie Extra|Onze apps|Meest recente|Gerelateerde berichten|Lees ook|Vacatures|Aanbiedingen|Reacties Netflix Nieuws|Meer populaire artikelen|Meer film- en serienieuws|Elke week het meest gelezen)\b',text,flags=re.I)[0]
-        return text[:60000]
+        return (text+'\n'+'\n'.join(schema_text))[:60000]
 
 def prepare(group, saved, imported, article_facts=None):
     result=[]

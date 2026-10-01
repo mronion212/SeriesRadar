@@ -152,7 +152,7 @@ De tests dekken onder meer seizoenisolatie, titelherkenning, foutieve koppelinge
 
 De selectie herkent ook spelshows, quizzen, partygames, reality, datingprogramma’s, talentenjachten en documentaires. Nieuwe zoekfeeds dekken genres en aankondigingen breder. Broadcast Magazine heeft ook een aparte productiefeed. De twee gemelde voorbeeldartikelen worden eenmaal rechtstreeks geïmporteerd als ze nog ontbreken, ook als ze uit de actuele feed zijn verdwenen. Eigen broninstellingen blijven voorrang houden.
 
-Per scan worden maximaal acht directe artikelpagina’s uitgelezen (maximaal eenmaal per dag per artikel) en vier TVDB-kandidaten gecontroleerd (maximaal eenmaal per week). TVDB controleren in het dossier kan een controle vervroegen, met een dagcache. Een TVDB-kandidaat wordt gevonden via de titel als URL-slug; alleen een exacte titel, een geldig serie-ID en een Nederlands productieland worden automatisch bevestigd. Andere schrijfwijzen, ontbrekende landen en onbereikbare pagina’s blijven onbevestigd en hebben een handmatige zoeklink. Dit is geen volledige TVDB-zoekmachine. De TVDB-controle staat los van het handmatige vinkje ‘Verwerkt voor TVDB’.
+Per scan worden maximaal twaalf directe artikelpagina’s uitgelezen (maximaal eenmaal per dag per artikel) en vier TVDB-kandidaten gecontroleerd (maximaal eenmaal per week). TVDB controleren in het dossier kan een controle vervroegen, met een dagcache. Een TVDB-kandidaat wordt gevonden via de titel als URL-slug; alleen een exacte titel, een geldig serie-ID en een Nederlands productieland worden automatisch bevestigd. Andere schrijfwijzen, ontbrekende landen en onbereikbare pagina’s blijven onbevestigd en hebben een handmatige zoeklink. Dit is geen volledige TVDB-zoekmachine. De TVDB-controle staat los van het handmatige vinkje ‘Verwerkt voor TVDB’.
 
 Volledige RSS-inhoud en directe pagina’s leveren meer expliciete gegevens op: synopsisvoorstellen, producenten, taal, genres, afleveringen, netwerk en releaseplanning. De oorspronkelijke bron blijft bij ieder veld staan. De taal van een nieuwsartikel bewijst niet de originele taal van een serie. Ontbrekende jaartallen worden niet gegokt. Synopsisvoorstellen zijn brontekst en moeten vóór inzending worden herschreven. Google Nieuws-doorverwijzingen worden binnen het bestaande scanbudget opgelost naar de oorspronkelijke uitgever. Bestemmingen en redirects worden op publieke HTTPS-adressen gecontroleerd. Bestaande dossiers krijgen voorrang; fouten krijgen een dag wachttijd. Cookiepagina’s, betaalmuren en blokkades worden niet omzeild. Bij zo’n fout blijft eerder gelezen informatie behouden.
 
@@ -194,6 +194,14 @@ Ongelezen directe artikelen krijgen bij de beperkte scanrondes voorrang. Daarna 
 
 # AI-onderzoek en bronactualiteit
 
+## Dossiers automatisch aanvullen
+
+Iedere scan zoekt ook gericht op de titel van maximaal twee onvolledige dossiers, met zoektermen voor cast, makers, afleveringen en première. De zoekronde gaat tot twee jaar terug en leest maximaal vier aanvullende bronpagina’s. Dossiers roteren op hun laatste controle; een succesvolle zoekronde heeft een week wachttijd, een mislukte een dag. Dit gebruikt publieke nieuwszoekfeeds en geen AI/API-tegoed. Zoekresultaten zijn geen bewijs: alleen gegevens uit daadwerkelijk uitgelezen, passende bronpagina’s worden toegevoegd.
+
+In Beheer kun je **Dossier automatisch aanvullen** kiezen om het geopende dossier gericht te controleren: één zoekopdracht, maximaal vier nieuwe bronpagina’s en vier gekoppelde artikelen, met een dagcache. De app blijft tijdens de controle bereikbaar en ververst het dossier na afloop. Handmatige waarden blijven leidend. Bestaande ingevulde waarden worden tijdens de gerichte ontdekking niet vervangen.
+
+De pagina-uitlezing herkent ook lijsten, feitentabellen, definitielijsten en exact passende TVSeries-data in JSON-LD. Bij meerdere producties worden ongenummerde bronnen alleen voor algemene seriegegevens gebruikt; cast, afleveringen en releasedata worden niet naar alle seizoenen gekopieerd. De veldselectie van ontdekte bronnen wordt ook bij latere bronverversingen behouden. Websites met blokkades, een login of uitsluitend JavaScript kunnen nog steeds onleesbaar zijn.
+
 ## Zonder API-tegoed
 
 Kies in Beheer bij een serie **Onderzoek zonder API**. Dit biedt twee routes:
@@ -202,7 +210,9 @@ Kies in Beheer bij een serie **Onderzoek zonder API**. Dit biedt twee routes:
 2. **ChatGPT/Codex-desktop:** open de beheerpagina in de ingebouwde browser, log in en vraag de agent het geselecteerde dossier te onderzoeken en voorstellen op te slaan. De pagina biedt `list_research_dossiers`, `get_research_dossier` en `submit_research_result`. Deze functies zijn alleen in beheer beschikbaar en gebruiken de bestaande authenticatie. De officiële documentatie noemt Sol/Terra voor WebMCP; Luna heeft deze functie momenteel uitgeschakeld. Gebruik voor Luna route 1.
 
 Beide routes gebruiken geen OpenAI API-aanroep vanuit SeriesRadar. De limieten van je ChatGPT/Codex-abonnement blijven gelden; onbeperkt gebruik wordt niet gegarandeerd.
-De server controleert de titel en het seizoen van het importpakket, leest de publieke bronpagina's opnieuw en controleert citaten. Alleen bevestigde voorstellen worden opgeslagen, met een ophaaldatum en `external_ai` als herkomst. Handmatige velden blijven leidend. Onderzoek zonder bevestigde feiten wijzigt bestaande feiten niet.
+De server controleert het dossier en seizoen van het importpakket, leest de publieke bronpagina's opnieuw en controleert citaten. Codeblokken en uitleg rondom één volledig JSON-object zijn toegestaan. Getallen en tekstlijsten worden omgezet naar tekst; Markdown-bronlinks worden herkend. Een foutief veld blokkeert de andere voorstellen niet. Een leeg `facts: []` is ook geldig en verandert geen bestaande feiten.
+
+Alleen bevestigde voorstellen worden toegevoegd, met een ophaaldatum en `external_ai` als herkomst. Meerdere bevestigde cast- en makersvoorstellen worden samengevoegd met hun eigen bronvermeldingen. Seizoencontrole gebruikt het citaat en de lokale context: een verwijzing naar seizoen 1 elders op een pagina wijst gegevens voor seizoen 2 niet automatisch af. Handmatige velden blijven leidend. Niet bevestigde voorstellen en de reden blijven in het laatste importrapport staan. Kies **Beoordelen / overnemen** om na eigen broncontrole een voorstel in het bestaande bewerkformulier te bevestigen. Onderzoek zonder bevestigde feiten wijzigt bestaande feiten niet.
 Een antwoord `running` betekent dat de broncontrole nog loopt. De interface ververst de status; een agent kan `get_research_dossier` opnieuw gebruiken. Een broncontrole bewijst niet dat de interpretatie van een citaat correct is.
 
 ## Optioneel met API-tegoed

@@ -4,6 +4,23 @@ from test_catalog import article
 import catalog
 
 class DossierTests(unittest.TestCase):
+    def test_facts_tables_lists_and_definitions_are_read_inside_article(self):
+        parser=dossier.ArticleParser()
+        parser.feed('<h1>Teststad</h1><article><table><tr><th>Aantal afleveringen</th><td>8</td></tr><tr><th>Regie</th><td>Eva Vos</td></tr></table><dl><dt>Originele taal</dt><dd>Nederlands</dd></dl><ul><li>Cast: Anna | Noor</li><li>Cast: Bas | Jan</li></ul></article><aside><p>Cast: Onjuiste Persoon</p></aside>')
+        facts=dossier.extract(parser.text_for('Teststad'),'Teststad','https://example.org')
+        self.assertEqual(facts['episodes']['value'],'8')
+        self.assertEqual(facts['directors']['value'],'Eva Vos')
+        self.assertEqual(facts['languages']['value'],'Nederlands')
+        self.assertEqual(facts['cast']['value'],'Anna | Noor\nBas | Jan')
+
+    def test_exact_tvseries_schema_supplies_explicit_data_without_visible_heading(self):
+        parser=dossier.ArticleParser()
+        parser.feed('<script type="application/ld+json">{"@type":"TVSeries","name":"Teststad","inLanguage":"nl","countryOfOrigin":{"name":"Nederland"},"actor":[{"@type":"Person","name":"Anna Vos"}],"genre":"Drama"}</script>')
+        facts=dossier.extract(parser.text_for('Teststad'),'Teststad','https://example.org')
+        self.assertEqual(facts['cast']['value'],'Anna Vos')
+        self.assertEqual(facts['countries']['value'],'Nederland')
+        with self.assertRaises(ValueError):parser.text_for('Andere Serie')
+
     def test_producer_of_series_and_first_season_premise(self):
         text=('SimpelZodiak is de producent van de serie.\n'
               'Undercover Lover is vanaf 17 juli te zien op Prime Video. Het programma volgt vijf koppels.\n'

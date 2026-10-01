@@ -98,6 +98,8 @@ def init():
             c.execute("ALTER TABLE ai_runs ADD COLUMN method TEXT NOT NULL DEFAULT 'api'")
         if 'report' not in {r['name'] for r in c.execute('PRAGMA table_info(ai_runs)')}:
             c.execute('ALTER TABLE ai_runs ADD COLUMN report TEXT')
+        if 'field_filter' not in {r['name'] for r in c.execute('PRAGMA table_info(dossier_sources)')}:
+            c.execute('ALTER TABLE dossier_sources ADD COLUMN field_filter TEXT')
         for table in ('enrichment_checks','dossier_sources'):
             if 'last_success' not in {r['name'] for r in c.execute('PRAGMA table_info('+table+')')}:
                 c.execute('ALTER TABLE '+table+' ADD COLUMN last_success TEXT')
@@ -331,6 +333,8 @@ def _build_catalog():
             group['ai_runs'].append({**{k:run[k] for k in ('scope','status','checked','message','method')},'report':json.loads(run['report']) if run['report'] else None})
         group['dossiers']=dossier.prepare(group,values,candidates,facts)
         group['tvdb_check']=checks.get('tvdb:'+group['id'])
+        group['metadata_discovery']=checks.get('discovery:'+group['id'])
+        group['metadata_enrichment']=checks.get('dossier-enrich:'+group['id'])
     result['dossier_fields']=[{'key':k,'label':label,'section':section} for k,label,section in dossier.FIELDS]
     return result
 
@@ -413,7 +417,32 @@ def run_research(group,profile,key=None,proposals=None):
             c.execute("UPDATE ai_runs SET status='error',checked=?,message=?,report=? WHERE series_id=? AND scope=?",(now(),message[:250],json.dumps(diagnostics),group['id'],profile['scope']))
     finally:AI_LOCK.release()
 
-def import_metadata(series_id,scope,name,url):
+def import_metadata(series_id,scope,name,url,allowed_fields=None):
+    try:
+        facts,detected,url=read_metadata(name,url)
+        expected=scope.split(':')[-1]
+        if detected and expected!='?' and int(expected)!=detected and (allowed_fields is None or not set(allowed_fields)<=ai_research.SERIES_FIELDS):
+            raise ValueError('Deze bron noemt een ander seizoen. Kies het bijbehorende seizoen in het dossier.')
+        if allowed_fields is not None:facts={k:v for k,v in facts.items() if k in allowed_fields}
+        store_metadata(series_id,scope,name,url,facts,allowed_fields)
+        return facts
+    except Exception as exc:
+        with connect() as c:
+            c.execute('UPDATE dossier_sources SET checked=?,error=? WHERE series_id=? AND scope=? AND url=?',(now(),str(exc)[:250],series_id,scope,url))
+        raise
+
+
+def store_metadata(series_id,scope,name,url,facts,allowed_fields=None):
+    with connect() as c:
+        stamp=now()
+        previous=c.execute('SELECT facts FROM dossier_sources WHERE series_id=? AND scope=? AND url=?',(series_id,scope,url)).fetchone()
+        merged={**(json.loads(previous['facts'] or '{}') if previous else {}),**facts}
+        if allowed_fields is not None:merged={k:v for k,v in merged.items() if k in allowed_fields}
+        c.execute('INSERT OR REPLACE INTO dossier_sources (series_id,scope,url,name,facts,checked,error,last_success,field_filter) VALUES (?,?,?,?,?,?,NULL,?,?)',(series_id,scope,url,name,json.dumps(merged),stamp,stamp,json.dumps(sorted(allowed_fields)) if allowed_fields is not None else None))
+
+
+def read_metadata(name,url):
+    url=resolve_article_url(url)
     public_url(url)
     req=Request(url,headers={'User-Agent':'SeriesRadar/1.0 (metadata from public press articles)'})
     try:
@@ -425,19 +454,14 @@ def import_metadata(series_id,scope,name,url):
         markup=decode_page(data,encoding)
         parser=dossier.ArticleParser();parser.feed(markup)
         text=parser.text_for(name)
-        # Prevent importing a different numbered season into this production.
         detected=series_catalog.season_of(' '.join(parser.headings))
-        expected=scope.split(':')[-1]
-        if detected and expected!='?' and int(expected)!=detected:
-            raise ValueError('Deze bron noemt een ander seizoen. Kies het bijbehorende seizoen in het dossier.')
         facts=dossier.tvdb_facts(markup,name,url) if urlparse(url).hostname in ('thetvdb.com','www.thetvdb.com') else dossier.extract(text,name,url)
-        with connect() as c:
-            stamp=now()
-            c.execute('INSERT OR REPLACE INTO dossier_sources (series_id,scope,url,name,facts,checked,error,last_success) VALUES (?,?,?,?,?,?,NULL,?)',(series_id,scope,url,name,json.dumps(facts),stamp,stamp))
-        return facts
-    except Exception as exc:
-        with connect() as c:
-            c.execute('UPDATE dossier_sources SET checked=?,error=? WHERE series_id=? AND scope=? AND url=?',(now(),str(exc)[:250],series_id,scope,url))
+        mentioned=series_catalog.season_numbers(text)
+        if detected is None and mentioned:detected=next(iter(mentioned)) if len(mentioned)==1 else -1
+        if len(mentioned)>1:
+            facts={k:v for k,v in facts.items() if k in ai_research.SERIES_FIELDS or series_catalog.season_of(v.get('evidence',''))==detected}
+        return facts,detected,url
+    except Exception:
         raise
 
 
@@ -453,12 +477,13 @@ def record_check(key,error=None):
         c.execute('INSERT INTO enrichment_checks (key,checked,error,last_success) VALUES (?,?,?,?) ON CONFLICT(key) DO UPDATE SET checked=excluded.checked,error=excluded.error,last_success=COALESCE(excluded.last_success,enrichment_checks.last_success)',(key,stamp,error,None if error else stamp))
 
 
-def enrich_articles(limit=8):
+def enrich_articles(limit=12,article_ids=None):
     """Bounded direct-page reads, including older stored fragments; errors back off a day."""
     with connect() as c:
         rows=[dict(r) for r in c.execute('''SELECT a.* FROM articles a
             LEFT JOIN enrichment_checks e ON e.key='article:' || a.id
             WHERE a.excluded=0 ORDER BY e.checked IS NOT NULL, e.checked ASC, a.published DESC''')]
+    if article_ids is not None:rows=[a for a in rows if a['id'] in article_ids]
     # Work on actual dossiers first; generic international headlines cannot starve them.
     groups=series_catalog.catalog(rows)['series']
     selected={a['id'] for g in groups for a in g['articles']}
@@ -509,7 +534,58 @@ def check_tvdb(group):
         record_check('tvdb:'+group['id'],'Niet automatisch bevestigd; zoek ook handmatig. '+str(exc)[:180])
 
 
+def discover_metadata(limit=2,page_limit=4,groups=None,refresh_days=7):
+    """Rotate exact-title searches for incomplete dossiers, with bounded reads."""
+    with connect() as c:
+        checks={r['key']:dict(r) for r in c.execute("SELECT * FROM enrichment_checks WHERE key LIKE 'discovery:%'")}
+    groups=list(groups) if groups is not None else get_catalog()['series']
+    groups.sort(key=lambda g:(checks.get('discovery:'+g['id'],{}).get('checked',''),
+                              min((p['filled'] for p in g['dossiers']),default=0)))
+    searched=0;pages=0;visited=set()
+    for group in groups:
+        if searched>=limit or pages>=page_limit:break
+        key='discovery:'+group['id'];check=checks.get(key,{})
+        if not any(p['missing'] for p in group['dossiers']) or not due_check(key,1 if check.get('error') else refresh_days):continue
+        searched+=1
+        title=group['name'].replace('"',' ')
+        query='"'+title+'" (cast OR regie OR producent OR afleveringen OR première OR presentatie) when:730d'
+        source={'id':key,'name':'Dossieronderzoek: '+group['name'],'query':query}
+        errors=[];success=False
+        try:
+            items=fetch_source(source)
+            for item in items:
+                if pages>=page_limit:break
+                if item['url'] in visited:continue
+                if series_catalog.normalize(group['name']) not in series_catalog.normalize(item['title']+' '+item['summary']):continue
+                visited.add(item['url']);pages+=1
+                try:
+                    facts,season,url=read_metadata(group['name'],item['url'])
+                    for profile in group['dossiers']:
+                        # An unnumbered page cannot establish season-specific
+                        # facts when several productions exist.
+                        matching=season is not None and season==profile['season']
+                        single=season is None and len(group['dossiers'])==1 and profile['season'] in (None,1)
+                        allowed=None if matching or single else ai_research.SERIES_FIELDS
+                        scoped={k:v for k,v in facts.items() if (allowed is None or k in allowed) and not profile['fields'].get(k,{}).get('value')}
+                        if scoped:
+                            store_metadata(group['id'],profile['scope'],group['name'],url,scoped,set(scoped))
+                            profile['fields'].update(scoped);success=True
+                except Exception as exc:errors.append(str(exc)[:120])
+            record_check(key,'; '.join(errors)[:250] if errors and not success else None)
+        except Exception as exc:record_check(key,str(exc)[:250])
+
+
+def run_dossier_enrichment(group):
+    try:
+        discover_metadata(limit=1,page_limit=4,groups=[group],refresh_days=1)
+        enrich_articles(limit=4,article_ids={a['id'] for a in group['articles']})
+        record_check('dossier-enrich:'+group['id'])
+    except Exception as exc:record_check('dossier-enrich:'+group['id'],str(exc)[:250])
+    finally:LOCK.release()
+
+
 def enrich_catalog():
+    discover_metadata()
     enrich_articles()
     count=0
     for group in get_catalog()['series']:
@@ -548,7 +624,7 @@ def scan():
         with connect() as c:
             due=[dict(r) for r in c.execute("SELECT * FROM dossier_sources WHERE checked < ? ORDER BY checked LIMIT 4",(datetime.fromtimestamp(time.time()-86400,timezone.utc).isoformat(),))]
         for source in due:
-            try:import_metadata(source['series_id'],source['scope'],source['name'],source['url'])
+            try:import_metadata(source['series_id'],source['scope'],source['name'],source['url'],json.loads(source['field_filter']) if source['field_filter'] else None)
             except Exception:logging.warning('Metadata source unavailable: %s',source['url'])
     finally:
         LOCK.release()
@@ -617,6 +693,8 @@ class Handler(BaseHTTPRequestHandler):
                 group['metadata_sources']=[{'scope':s['scope'],'url':s['url'],'checked':s['checked'],'last_success':s['last_success'],'status':'failed' if s['error'] else 'read'} for s in group['metadata_sources']]
                 group.pop('ai_runs',None)
                 group.pop('tvdb_check',None)
+                group.pop('metadata_discovery',None)
+                group.pop('metadata_enrichment',None)
                 group['articles']=[{k:a[k] for k in ('id','title','url','summary','publisher','published','discovered','kind','season','status','retrieval') if k in a} for a in group['articles']]
                 for profile in group['dossiers']:
                     profile['fields'].pop('notes',None)
@@ -655,16 +733,24 @@ class Handler(BaseHTTPRequestHandler):
             if self.path == '/api/scan':
                 WAKE.set()
                 return self.respond(202, {'ok': True})
-            if self.path in ('/api/dossier','/api/dossier/import','/api/dossier/check-tvdb','/api/dossier/research','/api/dossier/research-package','/api/dossier/research-import'):
+            if self.path in ('/api/dossier','/api/dossier/import','/api/dossier/check-tvdb','/api/dossier/enrich','/api/dossier/research','/api/dossier/research-package','/api/dossier/research-import'):
                 group=next((g for g in get_catalog()['series'] if g['id']==data.get('series_id')),None)
                 if not group: return self.respond(404,{'error':'Serie niet gevonden'})
                 profile=next((p for p in group['dossiers'] if p['scope']==data.get('scope')),None)
                 if not profile:raise ValueError('Selecteer een bestaande productie of seizoen')
+                if self.path.endswith('/enrich'):
+                    if not LOCK.acquire(blocking=False):return self.respond(409,{'error':'Er loopt al een scan of dossieraanvulling. Wacht tot deze klaar is.'})
+                    try:threading.Thread(target=run_dossier_enrichment,args=(group,),daemon=True).start()
+                    except Exception:LOCK.release();raise
+                    return self.respond(202,{'ok':True,'message':'Gerichte bronzoekopdracht en artikeluitlezing gestart. Het dossier ververst na afloop. Eerder gecontroleerde bronnen hebben een dagcache.'})
                 if self.path.endswith('/research-package'):
                     return self.respond(200,ai_research.research_package(group,profile))
                 if self.path.endswith('/research-import'):
-                    if data.get('title')!=group['name']:raise ValueError('Dit resultaat hoort bij een andere serietitel. Kopieer de actuele onderzoeksopdracht.')
-                    proposals=ai_research.validate_proposals(data.get('facts'))
+                    result=ai_research.parse_result(data['raw']) if 'raw' in data else data
+                    if (result.get('series_id')!=group['id'] or result.get('scope')!=profile['scope']
+                            or not isinstance(result.get('title'),str) or series_catalog.normalize(result['title'])!=series_catalog.normalize(group['name'])):
+                        raise ValueError('Dit resultaat hoort bij een ander dossier of seizoen. Kopieer de actuele onderzoeksopdracht.')
+                    proposals=ai_research.validate_batch(result.get('facts'))
                     if not AI_LOCK.acquire(blocking=False):return self.respond(409,{'error':'Er loopt al een onderzoek of broncontrole. Wacht tot dit klaar is.'})
                     try:
                         with connect() as c:

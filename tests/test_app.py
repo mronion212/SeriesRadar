@@ -8,6 +8,49 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import app
 
 class RadarTests(unittest.TestCase):
+    def test_targeted_discovery_fills_missing_fields_and_keeps_existing_values(self):
+        with app.connect() as c:
+            app.ingest(c,{'id':'test','name':'Test'},[{'title':'Nieuwe Nederlandse serie Teststad','url':'https://example.org/news','summary':'Teststad is vanaf 12 oktober 2026 te zien bij NPO 1.','published':None,'publisher':''}])
+        group=app.get_catalog()['series'][0]
+        fact=lambda value:{'value':value,'source_url':'https://example.org/press','evidence':'Credits','origin':'automatic'}
+        items=[{'title':'Teststad cast en makers','summary':'','url':'https://example.org/press'}]
+        with patch.object(app,'fetch_source',return_value=items) as feed,patch.object(app,'read_metadata',return_value=({'cast':fact('Anna | Noor'),'release_date':fact('Oude datum')},1,'https://example.org/press')) as read:
+            app.discover_metadata()
+            app.discover_metadata()
+        self.assertEqual(feed.call_count,1)
+        self.assertEqual(read.call_count,1)
+        profile=app.get_catalog()['series'][0]['dossiers'][0]
+        self.assertEqual(profile['fields']['cast']['value'],'Anna | Noor')
+        self.assertEqual(profile['fields']['release_date']['value'],'12 oktober 2026')
+
+    def test_unnumbered_discovery_cannot_copy_cast_across_seasons_or_on_refresh(self):
+        with app.connect() as c:
+            app.ingest(c,{'id':'test','name':'Test'},[
+                {'title':'Nieuwe Nederlandse serie Teststad','url':'https://example.org/1','summary':'','published':None,'publisher':''},
+                {'title':'Nederlandse serie Teststad krijgt tweede seizoen','url':'https://example.org/2','summary':'','published':None,'publisher':''}])
+        facts={k:{'value':v,'source_url':'https://example.org/press','evidence':'Credits','origin':'automatic'} for k,v in [('cast','Anna'),('languages','Nederlands')]}
+        items=[{'title':'Teststad cast','summary':'','url':'https://example.org/press'}]
+        with patch.object(app,'fetch_source',return_value=items),patch.object(app,'read_metadata',return_value=(facts,None,'https://example.org/press')):
+            app.discover_metadata()
+            with app.connect() as c:linked=[dict(r) for r in c.execute('SELECT * FROM dossier_sources')]
+            for s in linked:app.import_metadata(s['series_id'],s['scope'],s['name'],s['url'],json.loads(s['field_filter']))
+        for p in app.get_catalog()['series'][0]['dossiers']:
+            self.assertNotIn('cast',p['fields'])
+            self.assertEqual(p['fields']['languages']['value'],'Nederlands')
+
+    def test_article_enrichment_persists_full_page_facts_and_success(self):
+        import io
+        from email.message import Message
+        with app.connect() as c:
+            app.ingest(c,{'id':'test','name':'Test'},[{'title':'Nieuwe Nederlandse serie Teststad','url':'https://example.org/press','summary':'','published':None,'publisher':''}])
+        response=io.BytesIO(b'<h1>Nieuwe Nederlandse serie Teststad</h1><p>Cast: Anna Vos</p>');response.headers=Message()
+        with patch.object(app,'resolve_article_url',side_effect=lambda url:url),patch.object(app,'build_opener') as opener:
+            opener.return_value.open.return_value=response
+            app.enrich_articles(limit=1)
+        with app.connect() as c:
+            self.assertEqual(json.loads(c.execute('SELECT facts FROM article_facts').fetchone()[0])['cast']['value'],'Anna Vos')
+            self.assertIsNotNone(c.execute('SELECT last_success FROM enrichment_checks').fetchone()[0])
+
     def test_atom_uses_full_content(self):
         feed=b'<feed xmlns="http://www.w3.org/2005/Atom"><entry><title>Test</title><summary>Kort</summary><content>Volledige inhoud</content><link href="https://example.org/test"/></entry></feed>'
         self.assertEqual(list(app.parse_feed(feed))[0]['summary'],'Volledige inhoud')

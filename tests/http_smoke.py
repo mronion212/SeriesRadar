@@ -39,7 +39,7 @@ with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ,{'ADMIN_U
         assert isinstance(initial_status['revision'],int)
         assert call('/api/admin/dashboard',auth=False)[0]==401
         assert call('/admin',auth=False)[0]==401
-        for endpoint in ('/api/dossier/research-package','/api/dossier/research-import','/api/ai/settings','/api/dossier/research','/api/scan','/api/article','/api/dossier','/api/dossier/import','/api/dossier/check-tvdb','/api/source','/api/source/test'):
+        for endpoint in ('/api/dossier/enrich','/api/dossier/research-package','/api/dossier/research-import','/api/ai/settings','/api/dossier/research','/api/scan','/api/article','/api/dossier','/api/dossier/import','/api/dossier/check-tvdb','/api/source','/api/source/test'):
             assert call(endpoint,{},auth=False)[0]==401
         assert call('/health',auth=False)[0]==200
         assert call('/api/scan',{},csrf=False)[0]==403
@@ -85,13 +85,23 @@ with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ,{'ADMIN_U
         assert researched['cast']['value']=='Anna de Vries | Noor'
         assert researched['episodes']['value']=='8' and researched['episodes']['origin']=='ai'
         target={'series_id':group['id'],'scope':profile['scope']}
+        assert call('/api/dossier/enrich',target,csrf=False)[0]==403
+        with patch.object(app,'discover_metadata') as discover,patch.object(app,'enrich_articles') as enrich:
+            assert call('/api/dossier/enrich',target)[0]==202
+            for _ in range(100):
+                if not app.LOCK.locked():break
+                time.sleep(.02)
+            assert not app.LOCK.locked()
+            discover.assert_called_once()
+            enrich.assert_called_once()
+        assert 'metadata_discovery' not in call('/api/dashboard',auth=False)[1]['series'][0]
         packet=call('/api/dossier/research-package',target)[1]
         assert packet['title']=='Teststad' and 'Private dossier note' not in packet['prompt']
         assert call('/api/dossier/research-package',target,csrf=False)[0]==403
         external={**target,'title':'Teststad','facts':[{'field':'episodes','value':'10','source_url':'https://example.org/test','evidence':'Teststad heeft tien afleveringen.'}]}
         assert call('/api/dossier/research-import',{**external,'title':'Andere serie'})[0]==400
         assert call('/api/dossier/research-import',{**external,'scope':'season:99'})[0]==400
-        assert call('/api/dossier/research-import',{**external,'facts':[]})[0]==400
+        assert call('/api/dossier/research-import',{**external,'facts':{}})[0]==400
         assert call('/api/dossier/research-import',external,csrf=False)[0]==403
         with patch.object(app,'ai_key',return_value=''),patch.object(app.ai_research,'research') as paid,patch.object(app,'read_article_page',return_value='Teststad heeft tien afleveringen.'):
             assert call('/api/dossier/research-import',external)[0]==202
@@ -104,6 +114,17 @@ with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ,{'ADMIN_U
         assert fields['episodes']['value']=='10' and fields['episodes']['origin']=='external_ai'
         report=call('/api/dossier/research-package',target)[1]['research_status']['report']
         assert report[0]['code']=='confirmed' and report[0]['field']=='episodes'
+        mixed={**external,'facts':[{'field':'unknown','value':'bad'},external['facts'][0]]}
+        raw='Hier is het resultaat:\n```json\n'+json.dumps(mixed)+'\n```'
+        assert call('/api/dossier/research-import',{**target,'raw':json.dumps({**external,'scope':'season:2'})})[0]==400
+        with patch.object(app,'read_article_page',return_value='Teststad heeft tien afleveringen.'):
+            assert call('/api/dossier/research-import',{**target,'raw':raw})[0]==202
+            for _ in range(100):
+                if not app.AI_LOCK.locked():break
+                time.sleep(.02)
+            assert not app.AI_LOCK.locked()
+        report=call('/api/dossier/research-package',target)[1]['research_status']['report']
+        assert [r['code'] for r in report]==['invalid','confirmed']
         assert 'ai_runs' not in call('/api/dashboard',auth=False)[1]['series'][0]
         assert fields['cast']['value']=='Anna de Vries | Noor'
         with patch.dict(os.environ,{'ADMIN_PASSWORD':''}):
