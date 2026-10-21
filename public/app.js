@@ -7,13 +7,16 @@ if(isAdmin)document.querySelector('.edition').textContent='Beheeromgeving';
 const phases = ['Onbekend','Aangekondigd','Release gepland','In productie','Geproduceerd','Beschikbaar'];
 const kinds = ['Onbekend','Nieuwe serie','Nieuw seizoen'];
 let state = {series:[],inbox:[],ignored:[],sources:[],meta:{}}, view='series', dossierId=null, loading=false, stateRevision=null, polling=false, dossierScope='', dossierTab='overview', editingProfile=null;
+let dossierGroup=null, detailRevision=null, detailRequest=0, reviewRequest=0;
+const findGroup = id => dossierGroup?.id===id?dossierGroup:state.series.find(g=>g.id===id);
+const showError = e => {$('error').textContent=e.message;$('error').hidden=false;};
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const date = s => s ? new Date(s).toLocaleString('nl-NL',{day:'numeric',month:'short',year:'numeric'}) : 'Datum onbekend';
 const clock = s => s ? new Date(s).toLocaleString('nl-NL',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}) : 'Nog niet';
 const badge = (status,label=status) => `<span class="status ${{'Aangekondigd':'announced','Release gepland':'announced','In productie':'production','Geproduceerd':'complete','Beschikbaar':'available','Onbekend':'unknown'}[status]||'unknown'}">${esc(label)}</span>`;
 const productionLabel = p => p.kind==='Onbekend'?'Seizoen niet vastgesteld':p.kind==='Nieuwe serie'?'Nieuwe serie · seizoen 1':`Nieuw seizoen · ${p.season ? 'seizoen '+p.season:'nummer onbekend'}`;
 const productionStatusLabel = p => p.kind==='Nieuw seizoen'&&p.status==='Aangekondigd'?(p.season?`Seizoen ${p.season} aangekondigd`:'Vervolg aangekondigd'):p.status;
-const allArticles = () => [...state.series.flatMap(g=>g.articles),...state.inbox,...state.ignored];
+const allArticles = () => [...state.inbox,...state.ignored,...(dossierGroup?.articles||[])];
 async function request(path,data){
  if(data&&!isAdmin)throw new Error('Open Beheer om wijzigingen te maken.');
  const response = await fetch(path,data?{method:'POST',headers:{'Content-Type':'application/json','X-Radar-Request':'1'},body:JSON.stringify(data)}:{});
@@ -23,20 +26,55 @@ async function request(path,data){
 }
 async function load(){
  if(loading)return; loading=true;
- try {state=await request(isAdmin?'/api/admin/dashboard':'/api/dashboard');stateRevision=state.revision;$('error').hidden=true;render();}
- catch(e){$('error').textContent=e.message;$('error').hidden=false;}
+ try {
+  state=await request((isAdmin?'/api/admin/dashboard':'/api/dashboard')+'?summary=1');stateRevision=state.revision;$('error').hidden=true;render();
+  if(view==='review')await loadReview();
+  if($('series-detail').open)await loadDossier();
+ }
+ catch(e){showError(e);}
  finally{loading=false;}
 }
+async function loadReview(){
+ if(!isAdmin)return;
+ const token=++reviewRequest;
+ $('review-list').textContent='Berichten laden…';
+ try{const result=await request('/api/admin/review');if(token!==reviewRequest)return;state.inbox=result.inbox;state.ignored=result.ignored;renderReview();}
+ catch(e){if(token===reviewRequest)$('review-list').textContent='Berichten konden niet worden geladen.';throw e;}
+}
+async function loadDossier(){
+ const id=dossierId,token=++detailRequest;
+ if(!id)return false;
+ if(!state.series.some(g=>g.id===id)){$('series-detail').close();dossierGroup=null;return false;}
+ const group=await request((isAdmin?'/api/admin/series/':'/api/series/')+encodeURIComponent(id));
+ if(token!==detailRequest||id!==dossierId)return false;
+ dossierGroup=group;
+ if(!$('article-detail').open&&!$('metadata-detail').open)renderDossier();
+ return true;
+}
+async function openDossier(button){
+ dossierId=button.dataset.series;dossierScope=button.dataset.scope||'';dossierTab='overview';
+ button.disabled=true;
+ try{if(await loadDossier())$('series-detail').showModal();}
+ catch(e){showError(e);}
+ finally{button.disabled=false;}
+}
 function renderScanStatus(){
- $('review-count').textContent=state.inbox.length;
+ $('review-count').textContent=state.counts?.inbox??state.inbox.length;
  const failures=state.sources.filter(s=>s.enabled!==false&&s.error).length;
  $('scan-status').textContent=state.scanning?'Scan bezig…':`Laatste scan: ${clock(state.meta.last_finished)}${failures?' · '+failures+' bron(nen) met een fout':''}`;
  $('next-scan').textContent=state.scanning?'':state.meta.next_scan?`Volgende scan: ${clock(Number(state.meta.next_scan)*1000)}`:`Interval: ${Math.round((state.interval||1800)/60)} minuten`;
  $('scan').disabled=state.scanning;
 }
 async function poll(){
- if(polling||loading)return;polling=true;
- try{const status=await request('/api/status');state.meta=status.meta;state.scanning=status.scanning;renderScanStatus();if(!status.scanning&&(stateRevision===null||status.revision!==stateRevision))await load();}
+ if(document.hidden||polling||loading)return;polling=true;
+ try{
+  const status=await request(isAdmin?'/api/admin/status':'/api/status');state.meta=status.meta;state.scanning=status.scanning;renderScanStatus();
+  if(!status.scanning){
+   if(stateRevision===null||status.revision!==stateRevision)await load();
+   else if($('series-detail').open&&status.detail_revision!==detailRevision)await loadDossier();
+   detailRevision=status.detail_revision;
+  }
+ }
  catch(e){$('error').textContent=e.message;$('error').hidden=false;}
  finally{polling=false;}
 }
@@ -49,15 +87,15 @@ function render(){
 }
 function renderSeries(){
  const query=$('search').value.toLocaleLowerCase('nl'),kind=$('kind-filter').value,status=$('status-filter').value;
- let groups=state.series.map(g=>({...g,visibleProductions:g.productions.filter(p=>(!kind||p.kind===kind)&&(!status||p.status===status))})).filter(g=>g.visibleProductions.length&&(!query||`${g.name} ${g.articles.map(a=>a.title+' '+a.publisher).join(' ')}`.toLocaleLowerCase('nl').includes(query)));
+ let groups=state.series.map(g=>({...g,visibleProductions:g.productions.filter(p=>(!kind||p.kind===kind)&&(!status||p.status===status))})).filter(g=>g.visibleProductions.length&&(!query||`${g.name} ${g.search_text}`.toLocaleLowerCase('nl').includes(query)));
  if($('sort').value==='title')groups.sort((a,b)=>a.name.localeCompare(b.name,'nl'));
  else groups.sort((a,b)=>Date.parse(b.updated||0)-Date.parse(a.updated||0));
- $('catalog-count').textContent=`${groups.length} ${groups.length===1?'serie':'series'} · ${groups.reduce((n,g)=>n+g.articles.length,0)} nieuwsartikelen`;
+ $('catalog-count').textContent=`${groups.length} ${groups.length===1?'serie':'series'} · ${groups.reduce((n,g)=>n+g.article_count,0)} nieuwsartikelen`;
  $('series-empty').hidden=groups.length>0;
  $('series-list').innerHTML=groups.map(g=>{
  const p=g.visibleProductions.find(p=>p.articles.includes(g.latest_news?.article_id))||g.visibleProductions[0],d=(g.dossiers||[]).find(d=>d.kind===p.kind&&d.season===p.season)||g.dossiers?.[0], f=d?.fields||{};
- const cast=f.cast?.value?.split('\n').filter(Boolean)||[], network=f.platforms?.value||f.networks?.value||'Platform nog onbekend';
- return `<article class="series-card"><div class="card-top"><span class="title-mark">${esc(g.name.slice(0,2).toUpperCase())}</span>${badge(p.status,productionStatusLabel(p))}</div><button class="series-name" data-series="${g.id}" data-scope="${esc(d?.scope||'')}">${esc(g.name)}</button><div class="card-type">${esc(productionLabel(p))}${g.visibleProductions.length>1?' + '+(g.visibleProductions.length-1)+' producties':''}</div><div class="card-network">${esc(network.replaceAll('\n',' · '))}</div>${f.release_date?.value?`<div class="card-type">Uitzending: ${esc(f.release_date.value)}</div>`:''}<div class="card-latest" title="${esc(g.latest_news?.title||'')}"><strong>Laatste nieuws</strong> ${esc(g.latest_news?.title||'')}</div><div class="card-people"><span>${cast.length?cast.length+' castleden':'Cast nog niet ingevuld'}</span><span>${g.articles.length} artikelen</span></div><div class="card-progress"><span>Dossier</span><strong>${d?.filled||0} / ${d?.total||11} basisvelden</strong></div><progress max="${d?.total||11}" value="${d?.filled||0}" aria-label="Ingevulde basisvelden"></progress><div class="card-bottom"><span>${date(g.updated)}</span><button class="text-button" data-series="${g.id}" data-scope="${esc(d?.scope||'')}">Dossier openen ↗</button></div></article>`;
+ const castCount=d?.cast_count||0, network=f.platforms?.value||f.networks?.value||'Platform nog onbekend';
+ return `<article class="series-card"><div class="card-top"><span class="title-mark">${esc(g.name.slice(0,2).toUpperCase())}</span>${badge(p.status,productionStatusLabel(p))}</div><button class="series-name" data-series="${g.id}" data-scope="${esc(d?.scope||'')}">${esc(g.name)}</button><div class="card-type">${esc(productionLabel(p))}${g.visibleProductions.length>1?' + '+(g.visibleProductions.length-1)+' producties':''}</div><div class="card-network">${esc(network.replaceAll('\n',' · '))}</div>${f.release_date?.value?`<div class="card-type">Uitzending: ${esc(f.release_date.value)}</div>`:''}<div class="card-latest" title="${esc(g.latest_news?.title||'')}"><strong>Laatste nieuws</strong> ${esc(g.latest_news?.title||'')}</div><div class="card-people"><span>${castCount?castCount+' castleden':'Cast nog niet ingevuld'}</span><span>${g.article_count} artikelen</span></div><div class="card-progress"><span>Dossier</span><strong>${d?.filled||0} / ${d?.total||11} basisvelden</strong></div><progress max="${d?.total||11}" value="${d?.filled||0}" aria-label="Ingevulde basisvelden"></progress><div class="card-bottom"><span>${date(g.updated)}</span><button class="text-button" data-series="${g.id}" data-scope="${esc(d?.scope||'')}">Dossier openen ↗</button></div></article>`;
  }).join('');
 }
 function newsRow(a,reason=false){return `<article class="news-row"><div class="news-meta"><span>${esc(a.publisher)}</span><span>${date(a.published)}</span>${a.classification_reviewed?'<span>Beoordeeld</span>':''}${a.tvdb?'<span>TVDB verwerkt</span>':''}</div><h3>${esc(a.title)}</h3>${reason?`<p>${esc(a.rejection||a.issue)}</p>`:`<p>${esc(productionLabel({kind:a.kind,season:a.season}))} · ${esc(a.status)}</p>`}<p class="explanation">Eerste vondst: ${clock(a.discovered)}${a.retrieval?.feed_checked?' · Feed gecontroleerd: '+clock(a.retrieval.feed_checked):''}${a.retrieval?.last_success?' · Artikel laatst gelezen: '+clock(a.retrieval.last_success):''} · ${a.retrieval?.status==='read'?'Volledige bron gelezen':a.retrieval?.status==='failed'?'Volledige bron niet opgehaald · poging: '+clock(a.retrieval.attempted):'Alleen feedfragment; artikel nog niet gelezen'}</p><div class="news-actions"><a href="${esc(a.url)}" target="_blank" rel="noopener noreferrer">Bronbericht ↗</a><button class="text-button admin-only" data-article="${a.id}">Beoordelen / koppelen</button></div></article>`;}
@@ -67,8 +105,9 @@ function renderReview(){
  $('review-list').innerHTML=rows.length?rows.map(a=>newsRow(a,true)).join(''):'<div class="empty">Geen berichten in deze selectie.</div>';
 }
 function renderDossier(){
- const group=state.series.find(g=>g.id===dossierId);
- if(!group){$('series-detail').close();return;}
+ const group=dossierGroup;
+ if(!group||group.id!==dossierId)return;
+ if(!state.series.some(g=>g.id===dossierId)){$('series-detail').close();return;}
  $('dossier-title').textContent=group.name;
  $('dossier-subtitle').textContent=group.articles.length+' nieuwsartikelen · gegevens per productie';
  $('dossier-tvdb').href='https://thetvdb.com/search?query='+encodeURIComponent(group.name);
@@ -108,7 +147,7 @@ function exportText(group,profile){
  lines.push('NIEUWSBRONNEN');group.articles.forEach(a=>lines.push(a.title+' — '+a.url));return lines.join('\n');
 }
 function openMetadata(target){
- const group=state.series.find(g=>g.id===(target?.series_id||dossierId)), profile=group?.dossiers.find(p=>p.scope===(target?.scope||dossierScope));if(!profile)return;
+ const group=findGroup(target?.series_id||dossierId), profile=group?.dossiers.find(p=>p.scope===(target?.scope||dossierScope));if(!profile?.fields)return;
  editingProfile=JSON.parse(JSON.stringify({...profile,series_id:group.id}));
  $('metadata-heading').textContent=group.name+' · '+productionLabel(profile);
  $('metadata-fields').innerHTML=['Basis','Uitgave','Makers','Links','Aanvullend'].map(section=>`<fieldset><legend>${section}</legend>${state.dossier_fields.filter(f=>f.section===section).map(f=>{const v=profile.fields[f.key]||{};return `<div class="edit-fact"><label>${esc(f.label)}<textarea data-field-value="${f.key}" rows="${['cast','synopsis','episode_guide'].includes(f.key)?4:2}" maxlength="6000">${esc(v.value||'')}</textarea></label><details><summary>Bron en onderbouwing</summary><label>Bron-URL<input data-field-source="${f.key}" type="url" value="${esc(v.source_url||'')}" maxlength="2000"></label><label>Onderbouwing<textarea data-field-evidence="${f.key}" rows="2" maxlength="600">${esc(v.evidence||'')}</textarea></label></details></div>`;}).join('')}</fieldset>`).join('');
@@ -140,10 +179,11 @@ function setView(value){
  document.querySelectorAll('[data-view]').forEach(b=>{b.classList.toggle('active',b.dataset.view===view);b.setAttribute('aria-current',b.dataset.view===view?'page':'false');});
  $('page-title').textContent={series:'Series',review:'Te beoordelen',sources:'Bronnen'}[view];
  $('page-description').textContent={series:'Nieuwe producties en seizoenen. Nieuws gebundeld per titel.',review:'Controleer onduidelijke berichten voordat ze in het serieoverzicht verschijnen.',sources:'Beheer welke persfeeds en websites je volgt.'}[view];
+ if(value==='review')loadReview().catch(showError);
 }
 async function scanNow(){await request('/api/scan',{});$('notice').textContent='Scan aangevraagd. Het overzicht wordt automatisch bijgewerkt.';setTimeout(load,600);}
 $('scan').onclick=async()=>{try{$('scan').disabled=true;await scanNow();}catch(e){$('error').textContent=e.message;$('error').hidden=false;$('scan').disabled=false;}};
-document.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;if(b.dataset.view)setView(b.dataset.view);if(b.dataset.close)$(b.dataset.close).close();if(b.dataset.series){dossierId=b.dataset.series;dossierScope=b.dataset.scope||'';dossierTab='overview';renderDossier();$('series-detail').showModal();}if(b.dataset.dossierTab){dossierTab=b.dataset.dossierTab;renderDossier();}if(b.dataset.article)openArticle(b.dataset.article);if(b.dataset.source)openSource(b.dataset.source);});
+document.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;if(b.dataset.view)setView(b.dataset.view);if(b.dataset.close)$(b.dataset.close).close();if(b.dataset.series)openDossier(b);if(b.dataset.dossierTab){dossierTab=b.dataset.dossierTab;renderDossier();}if(b.dataset.article)openArticle(b.dataset.article);if(b.dataset.source)openSource(b.dataset.source);});
 for(const id of ['search','kind-filter','status-filter','sort'])$(id).addEventListener('input',renderSeries);
 for(const id of ['review-search','review-selection'])$(id).addEventListener('input',renderReview);
 $('edit-kind').onchange=()=>{if($('edit-kind').value==='Nieuwe serie')$('edit-season').value=1;else if($('edit-season').value==='1')$('edit-season').value='';};
@@ -164,8 +204,9 @@ $('edit-dossier').onclick=openMetadata;
 $('metadata-form').onsubmit=async e=>{e.preventDefault();e.submitter.disabled=true;try{const fields={};for(const f of state.dossier_fields){const key=f.key, value=document.querySelector(`[data-field-value="${key}"]`).value,source_url=document.querySelector(`[data-field-source="${key}"]`).value,evidence=document.querySelector(`[data-field-evidence="${key}"]`).value;const old=editingProfile.fields[key]||{};if(key===editingProfile.forceField||value!==(old.value||'')||source_url!==(old.source_url||'')||evidence!==(old.evidence||''))fields[key]={value,source_url,evidence};}await request('/api/dossier',{series_id:editingProfile.series_id,scope:editingProfile.scope,revision:editingProfile.revision,fields});$('metadata-detail').close();await load();}catch(e){$('metadata-error').textContent=e.message;}finally{e.submitter.disabled=false;}};
 $('import-form').onsubmit=async e=>{e.preventDefault();e.submitter.disabled=true;const scope=dossierScope,series_id=dossierId;$('import-status').textContent='Bron uitlezen…';try{const r=await request('/api/dossier/import',{series_id,scope,url:$('import-url').value});$('import-status').textContent=r.found?r.found+' velden gevonden. Bekijk en controleer de voorstellen.':'Geen expliciete metadata gevonden. Je kunt de gegevens handmatig aanvullen.';await load();}catch(e){$('import-status').textContent=e.message;}finally{e.submitter.disabled=false;}};
 $('copy-dossier').onclick=async()=>{try{await navigator.clipboard.writeText($('export-text').value);$('export-status').textContent='Gekopieerd.';}catch{$('export-text').focus();$('export-text').select();$('export-status').textContent='Selectie klaar. Kopieer met Ctrl+C.';}};
-$('download-dossier').onclick=()=>{const g=state.series.find(g=>g.id===dossierId),p=g?.dossiers.find(p=>p.scope===dossierScope);if(!p)return;const url=URL.createObjectURL(new Blob([JSON.stringify({title:g.name,...p,news_sources:g.articles.map(a=>({title:a.title,url:a.url}))},null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download=g.name.replace(/[^a-z0-9]/gi,'-')+'-'+p.scope.replace(':','-')+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
+$('download-dossier').onclick=()=>{const g=findGroup(dossierId),p=g?.dossiers.find(p=>p.scope===dossierScope);if(!p)return;const url=URL.createObjectURL(new Blob([JSON.stringify({title:g.name,...p,news_sources:g.articles.map(a=>({title:a.title,url:a.url}))},null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download=g.name.replace(/[^a-z0-9]/gi,'-')+'-'+p.scope.replace(':','-')+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
 load();setInterval(poll,10000);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)poll();});
 
 $('check-tvdb').onclick=async e=>{e.target.disabled=true;try{await request('/api/dossier/check-tvdb',{series_id:dossierId,scope:dossierScope});await load();}catch(e){$('dossier-tvdb-status').textContent=e.message;}finally{e.target.disabled=false;}};
 
@@ -182,7 +223,7 @@ function renderResearchReport(run){
  panel.innerHTML='<h3>Controle per veld</h3><p>Niet bevestigde gegevens blijven hier bewaard. Bekijk de bron en kies Beoordelen om een bruikbaar voorstel zelf over te nemen.</p>'+rows.map((r,i)=>`<article class="news-row"><h4>${esc(state.dossier_fields.find(f=>f.key===r.field)?.label||r.field)} · ${r.status==='confirmed'?'Broncitaat bevestigd':'Niet automatisch bevestigd'}</h4><p>${esc(r.reason)}</p><details><summary>Voorstel en citaat bekijken</summary><p>${esc(r.value).replaceAll('\n','<br>')}</p><blockquote>${esc(r.evidence)}</blockquote></details>${/^https?:\/\//i.test(r.source_url)?`<a href="${esc(r.source_url)}" target="_blank" rel="noopener noreferrer">Bron bekijken ↗</a>`:''}${r.code!=='invalid'&&state.dossier_fields.some(f=>f.key===r.field&&f.key!=='notes')?` <button type="button" data-review-proposal="${i}">Beoordelen / overnemen</button>`:''}</article>`).join('');
  panel.querySelectorAll('[data-review-proposal]').forEach(button=>button.onclick=()=>{
   if(!researchContext)return;
-  const group=state.series.find(g=>g.id===researchContext.series_id),profile=group?.dossiers.find(p=>p.scope===researchContext.scope);
+  const group=findGroup(researchContext.series_id),profile=group?.dossiers.find(p=>p.scope===researchContext.scope);
   if(!profile)return;
   const proposal=rows[Number(button.dataset.reviewProposal)];
   openMetadata(researchContext);
@@ -201,7 +242,7 @@ $('research-external').onclick=async e=>{
  e.target.disabled=true;
  try{
   researchContext=await request('/api/dossier/research-package',{series_id:dossierId,scope:dossierScope});
-  const selectedProfile=state.series.find(g=>g.id===researchContext.series_id)?.dossiers.find(p=>p.scope===researchContext.scope);
+  const selectedProfile=findGroup(researchContext.series_id)?.dossiers.find(p=>p.scope===researchContext.scope);
   $('research-context').textContent=researchContext.title+(selectedProfile?' · '+productionLabel(selectedProfile):'');
   $('research-prompt').value=researchContext.prompt;$('research-result').value='';
   $('research-import-status').textContent=researchContext.research_status?.method==='external'?researchContext.research_status.message:'';

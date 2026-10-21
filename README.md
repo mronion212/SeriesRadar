@@ -102,7 +102,9 @@ Open daarna http://localhost:8080 en log in.
 
 ## Scans en instellingen
 
-Bij het starten voert de app een scan uit, daarna 30 minuten na afronding van iedere scan. De scan zelf duurt doorgaans seconden, maar trage bronnen kunnen de ronde verlengen. Geen aparte cron nodig. De container moet blijven draaien. Eén container per database gebruiken; de scheduler draait in hetzelfde proces. Handmatig scannen start geen overlappende tweede scan. De website haalt elke 10 seconden het bijgewerkte overzicht op.
+Bij het starten voert de app een scan uit, daarna 30 minuten na afronding van iedere scan. De scan zelf duurt doorgaans seconden, maar trage bronnen kunnen de ronde verlengen. Geen aparte cron nodig. De container moet blijven draaien. Eén container per database gebruiken; de scheduler draait in hetzelfde proces. Handmatig scannen start geen overlappende tweede scan. De website controleert elke 10 seconden met een klein statusverzoek of er wijzigingen zijn. In een verborgen browsertab pauzeert deze controle; bij terugkeer wordt direct opnieuw gecontroleerd.
+
+Het overzicht laadt alleen kaartgegevens. Volledige dossiers en de beheerbeoordelingslijst worden pas bij openen opgehaald. Zoekopdrachten blijven ook artikelkoppen en uitgevers doorzoeken. Scan- en artikelcontroletijden worden apart bijgewerkt en veroorzaken geen volledige herberekening van de catalogus. De bestaande volledige dashboard-API blijft beschikbaar; de website gebruikt de compacte variant met `?summary=1` en aparte dossierverzoeken.
 
 In `.env`:
 

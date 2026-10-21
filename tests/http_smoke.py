@@ -38,6 +38,9 @@ with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ,{'ADMIN_U
         initial_status=call('/api/status',auth=False)[1]
         assert isinstance(initial_status['revision'],int)
         assert call('/api/admin/dashboard',auth=False)[0]==401
+        for endpoint in ('/api/admin/dashboard?summary=1','/api/admin/status','/api/admin/review','/api/admin/series/missing'):
+            assert call(endpoint,auth=False)[0]==401
+        assert call('/api/series/missing',auth=False)[0]==404
         assert call('/admin',auth=False)[0]==401
         for endpoint in ('/api/dossier/enrich','/api/dossier/research-package','/api/dossier/research-import','/api/ai/settings','/api/dossier/research','/api/scan','/api/article','/api/dossier','/api/dossier/import','/api/dossier/check-tvdb','/api/source','/api/source/test'):
             assert call(endpoint,{},auth=False)[0]==401
@@ -61,6 +64,14 @@ with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ,{'ADMIN_U
             assert response.headers['Content-Encoding']=='gzip'
             assert 'series' in json.loads(gzip.decompress(response.read()))
         group=call('/api/admin/dashboard')[1]['series'][0]
+        compact=call('/api/admin/dashboard?summary=1')[1]
+        assert 'articles' not in compact['series'][0]
+        assert compact['series'][0]['article_count']==len(group['articles'])
+        assert compact['inbox']==compact['ignored']==[] and 'counts' in compact
+        detail_path='/api/series/'+group['id']
+        admin_detail_path='/api/admin/series/'+group['id']
+        assert call(admin_detail_path,auth=False)[0]==401
+        assert call(admin_detail_path)[1]==group
         row=group['articles'][0]
         profile=group['dossiers'][0]
         update={'series_id':group['id'],'scope':profile['scope'],'revision':profile['revision'],'fields':{'notes':{'value':'Private dossier note'},'cast':{'value':'Anna de Vries | Noor','source_url':'https://example.org/test','evidence':'Cast credits'}}}
@@ -70,7 +81,19 @@ with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ,{'ADMIN_U
         assert public['inbox']==[] and public['ignored']==[] and public['sources']==[]
         assert 'notes' not in public['series'][0]['articles'][0]
         assert 'Private dossier note' not in json.dumps(public)
+        compact=call('/api/dashboard?summary=1',auth=False)[1]
+        assert 'articles' not in compact['series'][0]
+        assert 'Private dossier note' not in json.dumps(compact)
+        assert 'notes' not in [f['key'] for f in compact['dossier_fields']]
+        public_detail=call(detail_path,auth=False)[1]
+        assert public_detail==public['series'][0]
+        assert 'Private dossier note' not in json.dumps(public_detail)
+        assert call(admin_detail_path)[1]['dossiers'][0]['fields']['notes']['value']=='Private dossier note'
+        content_revision=call('/api/status',auth=False)[1]['revision']
+        detail_revision=call('/api/status',auth=False)[1]['detail_revision']
         app.record_check('article:'+row['id'])
+        assert call('/api/status',auth=False)[1]['revision']==content_revision
+        assert call('/api/status',auth=False)[1]['detail_revision']>detail_revision
         first=call('/api/dashboard',auth=False)[1]['series'][0]['articles'][0]['retrieval']['last_success']
         app.record_check('article:'+row['id'],'temporary failure')
         retrieval=call('/api/dashboard',auth=False)[1]['series'][0]['articles'][0]['retrieval']
@@ -144,6 +167,11 @@ with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ,{'ADMIN_U
         assert call('/api/article',data)[0]==200
         assert not call('/api/admin/dashboard')[1]['series']
         assert call('/api/admin/dashboard')[1]['ignored'][0]['notes']=='Persisted note'
+        review=call('/api/admin/review')[1]
+        assert review['ignored'][0]['notes']=='Persisted note'
+        compact=call('/api/admin/dashboard?summary=1')[1]
+        assert compact['counts']['ignored']==len(review['ignored']) and compact['ignored']==[]
+        assert call(detail_path,auth=False)[0]==404
         print('HTTP integration OK: login, CSRF, sources, grouping, review, ignore, persistence')
     finally:
         server.shutdown()

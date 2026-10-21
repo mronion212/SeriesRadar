@@ -102,6 +102,75 @@ class RadarTests(unittest.TestCase):
             self.assertEqual(len(app.get_catalog()['series']), 1)
             self.assertEqual(build.call_count, 2)
 
+    def test_diagnostics_stay_fresh_without_rebuilding_catalog(self):
+        with app.connect() as c:
+            app.ingest(c, {'id':'test','name':'Test'}, [{'title':'Nieuwe Nederlandse serie Teststad',
+                'url':'https://example.org/test','summary':'','published':None,'publisher':'Test'}])
+        with patch.object(app, '_build_catalog', wraps=app._build_catalog) as build:
+            group=app.get_catalog()['series'][0]
+            revision=app.catalog_revision()
+            admin_revision=app.catalog_revision(admin=True)
+            article_id=group['articles'][0]['id']
+            app.record_check('article:'+article_id)
+            first=app.get_catalog(series_id=group['id'])['series'][0]['articles'][0]['retrieval']['last_success']
+            app.record_check('article:'+article_id,'offline')
+            with app.connect('details') as c:
+                c.execute("INSERT INTO sources (id,last_success) VALUES ('test','2026-10-21')")
+            retrieval=app.get_catalog()['series'][0]['articles'][0]['retrieval']
+            self.assertEqual(retrieval['last_success'],first)
+            self.assertEqual(retrieval['status'],'failed')
+            self.assertEqual(retrieval['feed_checked'],'2026-10-21')
+            self.assertEqual(app.catalog_revision(),revision)
+            self.assertGreater(app.catalog_revision(admin=True),admin_revision)
+            self.assertEqual(build.call_count,1)
+
+    def test_scan_timestamps_and_rollback_do_not_invalidate_catalog(self):
+        with patch.object(app, '_build_catalog', wraps=app._build_catalog) as build:
+            app.get_catalog()
+            revisions=(app.catalog_revision(),app.catalog_revision(admin=True))
+            with app.connect('status') as c:
+                c.execute("INSERT INTO meta VALUES ('last_finished','now')")
+            with self.assertRaises(ValueError):
+                with app.connect() as c:
+                    c.execute("INSERT INTO articles (id,title,url,summary,source,publisher,discovered,phase,reason) VALUES ('x','Title','https://example.org','','test','Test','now','Onbekend','')")
+                    raise ValueError('roll back')
+            self.assertEqual(app.get_catalog()['series'],[])
+            self.assertEqual(revisions,(app.catalog_revision(),app.catalog_revision(admin=True)))
+            self.assertEqual(build.call_count,1)
+
+    def test_summary_preserves_card_data_without_bodies_or_evidence(self):
+        item={'title':'Nieuwe Nederlandse serie Teststad','url':'https://example.org/test',
+              'summary':'Cast: Anna Vos. Vanaf 12 oktober 2026 te zien bij NPO 1.',
+              'published':None,'publisher':'Test'}
+        with app.connect() as c:app.ingest(c,{'id':'test','name':'Test'},[item])
+        full=app.get_catalog()['series'][0]
+        overview=app.get_catalog(summary=True)
+        card=overview['series'][0]
+        self.assertEqual(card['article_count'],len(full['articles']))
+        self.assertEqual(card['latest_news'],full['latest_news'])
+        self.assertIn(item['title'],card['search_text'])
+        self.assertNotIn('articles',card)
+        self.assertNotIn('metadata_sources',card)
+        self.assertNotIn('evidence',json.dumps(card))
+        self.assertEqual(card['dossiers'][0]['filled'],full['dossiers'][0]['filled'])
+        self.assertEqual(card['dossiers'][0]['cast_count'],1)
+        self.assertEqual(overview['inbox'],[])
+        detail=app.get_catalog(series_id=full['id'])
+        self.assertNotIn('inbox',detail)
+        self.assertEqual(detail['series'][0],full)
+        self.assertEqual(app.get_catalog(series_id='missing')['series'],[])
+        card['name']='Local change'
+        self.assertEqual(app.get_catalog(summary=True)['series'][0]['name'],'Teststad')
+
+    def test_unchanged_feed_does_not_invalidate_catalog(self):
+        item={'title':'Nieuwe Nederlandse serie Teststad','url':'https://example.org/test',
+              'summary':'Cast: Anna Vos','published':None,'publisher':'Test'}
+        source={'id':'test','name':'Test'}
+        with app.connect() as c:app.ingest(c,source,[item])
+        revision=app.catalog_revision()
+        with app.connect() as c:self.assertEqual(app.ingest(c,source,[item]),0)
+        self.assertEqual(app.catalog_revision(),revision)
+
     def test_classification_and_unknown(self):
         for title, phase in [('Opnames zijn gestart voor nieuwe serie', 'In productie'), ('Nieuwe serie vanaf vandaag te zien', 'Gereleased'), ('Serie vanaf 12 december', 'Release gepland'), ('Interview over een serie','Te beoordelen')]:
             self.assertEqual(app.classify(title)[0],phase)

@@ -20,7 +20,7 @@ import time
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlparse, urlencode
+from urllib.parse import urlparse, urlencode, parse_qs
 from urllib.request import Request, urlopen, build_opener, HTTPRedirectHandler
 import xml.etree.ElementTree as ET
 import catalog as series_catalog
@@ -39,34 +39,44 @@ TVMAZE_LAST_REQUEST = 0
 CATALOG_LOCK = threading.RLock()
 CATALOG_CACHE = None
 CATALOG_REVISION = 0
+DETAIL_REVISION = 0
+ADMIN_REVISION = 0
 CATALOG_TTL = 60
 PHASES = ['Te beoordelen', 'Aangekondigd', 'In productie', 'Release gepland', 'Gereleased']
 
 def now():
     return datetime.now(timezone.utc).isoformat()
 
-def invalidate_catalog():
-    global CATALOG_CACHE, CATALOG_REVISION
+def invalidate_catalog(change='catalog'):
+    global CATALOG_CACHE, CATALOG_REVISION, DETAIL_REVISION, ADMIN_REVISION
     with CATALOG_LOCK:
-        CATALOG_CACHE = None
-        CATALOG_REVISION += 1
+        if change == 'catalog':
+            CATALOG_CACHE = None
+            CATALOG_REVISION += 1
+        if change in ('catalog', 'details'):
+            DETAIL_REVISION += 1
+        if change != 'status':
+            ADMIN_REVISION += 1
 
-def catalog_revision():
+def catalog_revision(admin=False):
     with CATALOG_LOCK:
-        return CATALOG_REVISION
+        return ADMIN_REVISION if admin else CATALOG_REVISION
 
 @contextmanager
-def connect():
+def connect(change='catalog'):
+    """Invalidate only the affected view after a successful write transaction."""
     c = sqlite3.connect(DB, timeout=30)
     c.row_factory = sqlite3.Row
+    committed = False
     try:
         with c:
             yield c
+        committed = True
     finally:
-        changed = c.total_changes > 0
+        changed = committed and c.total_changes > 0
         c.close()
         if changed:
-            invalidate_catalog()
+            invalidate_catalog(change)
 
 def init():
     DB.parent.mkdir(parents=True, exist_ok=True)
@@ -295,18 +305,70 @@ def ingest(c, source, items):
         if name:
             facts=dossier.extract(stored['title']+'\n'+stored['summary'],name,stored['url'])
             if facts:
-                c.execute('INSERT OR REPLACE INTO article_facts VALUES (?,?)',(key,json.dumps(facts)))
+                c.execute('''INSERT INTO article_facts VALUES (?,?) ON CONFLICT(article_id)
+                    DO UPDATE SET facts=excluded.facts WHERE article_facts.facts != excluded.facts''',(key,json.dumps(facts)))
     return added
 
-def get_catalog():
+def get_catalog(summary=False, series_id=None):
     global CATALOG_CACHE
     with CATALOG_LOCK:
         key = str(DB)
-        if CATALOG_CACHE and CATALOG_CACHE['key'] == key and CATALOG_CACHE['expires'] > time.monotonic():
-            return copy.deepcopy(CATALOG_CACHE['value'])
-        result = _build_catalog()
-        CATALOG_CACHE = {'key':key,'expires':time.monotonic()+CATALOG_TTL,'value':result}
-        return copy.deepcopy(result)
+        if not (CATALOG_CACHE and CATALOG_CACHE['key'] == key and CATALOG_CACHE['expires'] > time.monotonic()):
+            value = _build_catalog()
+            CATALOG_CACHE = {'key':key,'expires':time.monotonic()+CATALOG_TTL,
+                             'value':value,'summary':catalog_summary(value)}
+        result = CATALOG_CACHE['summary' if summary else 'value']
+        if series_id is not None:
+            result = {'series':[g for g in result['series'] if g['id']==series_id],
+                      'dossier_fields':result['dossier_fields']}
+        result = copy.deepcopy(result)
+    if summary:
+        return result
+    # Retrieval times and diagnostics change more often than article classification.
+    with connect() as c:
+        checks={r['key']:dict(r) for r in c.execute('SELECT * FROM enrichment_checks')}
+        source_times={r['id']:r['last_success'] for r in c.execute('SELECT id,last_success FROM sources')}
+    for group in result['series']:
+        for a in group['articles']:
+            check=checks.get('article:'+a['id'],{})
+            a['retrieval']={'attempted':check.get('checked'),'last_success':check.get('last_success'),
+                            'feed_checked':source_times.get(a['source']),
+                            'status':'failed' if check.get('error') else 'read' if check else 'feed_only'}
+        group['tvdb_check']=checks.get('tvdb:'+group['id'])
+        group['metadata_discovery']=checks.get('discovery:'+group['id'])
+        group['metadata_enrichment']=checks.get('dossier-enrich:'+group['id'])
+    return result
+
+
+def catalog_summary(result):
+    """Card data only; large fields, article bodies and review queues load on demand."""
+    groups=[]
+    for g in result['series']:
+        profiles=[]
+        for p in g['dossiers']:
+            profiles.append({**{k:p[k] for k in ('scope','kind','season','filled','total')},
+                'cast_count':len([line for line in p['fields'].get('cast',{}).get('value','').splitlines() if line]),
+                'fields':{k:{'value':p['fields'][k]['value']} for k in ('platforms','networks','release_date') if k in p['fields']}})
+        groups.append({**{k:g[k] for k in ('id','name','updated','latest_news')},
+            'article_count':len(g['articles']),
+            'search_text':' '.join(a['title']+' '+a['publisher'] for a in g['articles']),
+            'productions':[{k:p[k] for k in ('kind','season','status','articles')} for p in g['productions']],
+            'dossiers':profiles})
+    return {'series':groups,'dossier_fields':result['dossier_fields'],'inbox':[],'ignored':[],
+            'counts':{key:len(result[key]) for key in ('inbox','ignored')}}
+
+
+def public_group(group):
+    """Use the same public projection for legacy dashboards and individual dossiers."""
+    group['metadata_sources']=[{'scope':s['scope'],'url':s['url'],'checked':s['checked'],
+        'last_success':s['last_success'],'status':'failed' if s['error'] else 'read'} for s in group['metadata_sources']]
+    for key in ('ai_runs','tvdb_check','metadata_discovery','metadata_enrichment'):
+        group.pop(key,None)
+    group['articles']=[{k:a[k] for k in ('id','title','url','summary','publisher','published',
+        'discovered','kind','season','status','retrieval') if k in a} for a in group['articles']]
+    for profile in group['dossiers']:
+        profile['fields'].pop('notes',None)
+    return group
 
 def _build_catalog():
     with connect() as c:
@@ -314,17 +376,12 @@ def _build_catalog():
         saved=[dict(r) for r in c.execute('SELECT * FROM dossier_data')]
         imported=[dict(r) for r in c.execute('SELECT * FROM dossier_sources ORDER BY checked')]
         facts={r['article_id']:json.loads(r['facts']) for r in c.execute('SELECT * FROM article_facts')}
-        checks={r['key']:dict(r) for r in c.execute('SELECT * FROM enrichment_checks')}
         runs=[dict(r) for r in c.execute('SELECT * FROM ai_runs')]
-        source_times={r['id']:r['last_success'] for r in c.execute('SELECT id,last_success FROM sources')}
     result=series_catalog.catalog(articles)
     for group in result['series']:
         values={r['scope']:{'revision':r['revision'],'fields':json.loads(r['fields'])} for r in saved if r['series_id']==group['id']}
         candidates={}
         group['metadata_sources']=[]
-        for a in group['articles']:
-            check=checks.get('article:'+a['id'],{})
-            a['retrieval']={'attempted':check.get('checked'),'last_success':check.get('last_success'),'feed_checked':source_times.get(a['source']),'status':'failed' if check.get('error') else 'read' if check else 'feed_only'}
         for r in imported:
             if r['series_id']!=group['id']:continue
             candidates.setdefault(r['scope'],{}).update(json.loads(r['facts'] or '{}'))
@@ -335,9 +392,6 @@ def _build_catalog():
             candidates.setdefault(run['scope'],{}).update(json.loads(run['facts'] or '{}'))
             group['ai_runs'].append({**{k:run[k] for k in ('scope','status','checked','message','method')},'report':json.loads(run['report']) if run['report'] else None})
         group['dossiers']=dossier.prepare(group,values,candidates,facts)
-        group['tvdb_check']=checks.get('tvdb:'+group['id'])
-        group['metadata_discovery']=checks.get('discovery:'+group['id'])
-        group['metadata_enrichment']=checks.get('dossier-enrich:'+group['id'])
     result['dossier_fields']=[{'key':k,'label':label,'section':section} for k,label,section in dossier.FIELDS]
     return result
 
@@ -490,7 +544,7 @@ def due_check(key, days=1):
 
 
 def record_check(key,error=None):
-    with connect() as c:
+    with connect('details') as c:
         stamp=now()
         c.execute('INSERT INTO enrichment_checks (key,checked,error,last_success) VALUES (?,?,?,?) ON CONFLICT(key) DO UPDATE SET checked=excluded.checked,error=excluded.error,last_success=COALESCE(excluded.last_success,enrichment_checks.last_success)',(key,stamp,error,None if error else stamp))
 
@@ -649,7 +703,7 @@ def scan():
         return
     try:
         configured = sources()
-        with connect() as c:
+        with connect('status') as c:
             c.execute("INSERT OR REPLACE INTO meta VALUES ('last_started',?)", (now(),))
         with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
             futures = {pool.submit(fetch_source, s): s for s in configured if s.get('enabled', True)}
@@ -660,15 +714,16 @@ def scan():
                     items = future.result()
                     with connect() as c:
                         added = ingest(c, s, items)
+                    with connect('details') as c:
                         c.execute('''INSERT INTO sources VALUES (?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET
                           name=excluded.name,last_attempt=excluded.last_attempt,last_success=excluded.last_success,error=excluded.error,fetched=excluded.fetched,added=excluded.added''', (s['id'], s['name'], stamp, stamp, '; '.join(s.get('_warnings',[]))[:250] or None, len(items), added))
                 except Exception as exc:
                     logging.warning('Source %s: %s', s['id'], exc)
-                    with connect() as c:
+                    with connect('details') as c:
                         c.execute('''INSERT INTO sources (id,name,last_attempt,error) VALUES (?,?,?,?)
                           ON CONFLICT(id) DO UPDATE SET last_attempt=excluded.last_attempt,error=excluded.error''', (s['id'], s['name'], stamp, str(exc)[:250]))
         enrich_catalog()
-        with connect() as c:
+        with connect('status') as c:
             c.execute("INSERT OR REPLACE INTO meta VALUES ('last_finished',?)", (now(),))
             c.execute("INSERT OR REPLACE INTO meta VALUES ('next_scan',?)", (str(time.time() + INTERVAL),))
         # Revisit linked metadata sources once per day, bounded per news round.
@@ -723,40 +778,46 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = urlparse(self.path).path
+        summary = parse_qs(urlparse(self.path).query).get('summary') == ['1']
         if path == '/health':
             with connect() as c:
                 c.execute('SELECT 1').fetchone()
             return self.respond(200, {'status': 'ok'})
-        if path == '/api/status':
+        if (path in ('/admin','/admin/') or path.startswith('/api/admin/')) and not self.authorized():
+            return
+        if path in ('/api/status','/api/admin/status'):
             with connect() as c:
                 meta=dict(c.execute("SELECT key,value FROM meta WHERE key IN ('last_finished','next_scan')").fetchall())
-            return self.respond(200, {'revision':catalog_revision(),'meta':meta,'scanning':LOCK.locked()})
-        if path in ('/admin','/admin/','/api/admin/dashboard') and not self.authorized():
-            return
+            with CATALOG_LOCK:
+                status={'revision':catalog_revision(admin=path.startswith('/api/admin/')),
+                        'detail_revision':DETAIL_REVISION,'meta':meta,'scanning':LOCK.locked()}
+            return self.respond(200, status)
+        if path.startswith(('/api/series/','/api/admin/series/')):
+            result=get_catalog(series_id=path.rsplit('/',1)[-1])
+            if not result['series']:
+                return self.respond(404, {'error':'Serie niet gevonden'})
+            group=result['series'][0]
+            return self.respond(200, group if path.startswith('/api/admin/') else public_group(group))
+        if path == '/api/admin/review':
+            result=get_catalog()
+            return self.respond(200, {k:result[k] for k in ('inbox','ignored')})
         if path == '/api/dashboard':
             revision=catalog_revision()
-            result=get_catalog()
+            result=get_catalog(summary=summary)
             with connect() as c:
                 meta=dict(c.execute("SELECT key,value FROM meta WHERE key IN ('last_finished','next_scan')").fetchall())
             # Public readers see catalogued productions, never the review queue,
             # internal notes, source configuration or diagnostic errors.
-            for group in result['series']:
-                group['metadata_sources']=[{'scope':s['scope'],'url':s['url'],'checked':s['checked'],'last_success':s['last_success'],'status':'failed' if s['error'] else 'read'} for s in group['metadata_sources']]
-                group.pop('ai_runs',None)
-                group.pop('tvdb_check',None)
-                group.pop('metadata_discovery',None)
-                group.pop('metadata_enrichment',None)
-                group['articles']=[{k:a[k] for k in ('id','title','url','summary','publisher','published','discovered','kind','season','status','retrieval') if k in a} for a in group['articles']]
-                for profile in group['dossiers']:
-                    profile['fields'].pop('notes',None)
+            if not summary:
+                result['series']=[public_group(group) for group in result['series']]
             result['dossier_fields']=[f for f in result['dossier_fields'] if f['key']!='notes']
             return self.respond(200, {'series':result['series'],'dossier_fields':result['dossier_fields'],'inbox':[],'ignored':[],'sources':[],'meta':meta,'scanning':LOCK.locked(),'interval':INTERVAL,'revision':revision})
         if path == '/api/admin/dashboard':
-            revision=catalog_revision()
+            revision=catalog_revision(admin=True)
             with connect() as c:
                 statuses = {r['id']: dict(r) for r in c.execute('SELECT * FROM sources')}
                 meta = dict(c.execute('SELECT key,value FROM meta').fetchall())
-            return self.respond(200, {**get_catalog(), 'ai':{'configured':bool(ai_key()),'busy':AI_LOCK.locked(),'model':ai_research.MODEL,'reasoning':ai_research.EFFORT}, 'sources': [{**statuses.get(s['id'], {}), **s} for s in sources()], 'meta': meta, 'scanning': LOCK.locked(), 'interval': INTERVAL,'revision':revision})
+            return self.respond(200, {**get_catalog(summary=summary), 'ai':{'configured':bool(ai_key()),'busy':AI_LOCK.locked(),'model':ai_research.MODEL,'reasoning':ai_research.EFFORT}, 'sources': [{**statuses.get(s['id'], {}), **s} for s in sources()], 'meta': meta, 'scanning': LOCK.locked(), 'interval': INTERVAL,'revision':revision})
         files = {'/': ('index.html', 'text/html; charset=utf-8'), '/admin': ('index.html', 'text/html; charset=utf-8'), '/admin/': ('index.html', 'text/html; charset=utf-8'), '/app.js': ('app.js', 'text/javascript; charset=utf-8'), '/style.css': ('style.css', 'text/css; charset=utf-8'), '/favicon.svg': ('favicon.svg', 'image/svg+xml')}
         if path in files:
             name, kind = files[path]
@@ -779,13 +840,13 @@ class Handler(BaseHTTPRequestHandler):
             if self.path == '/api/ai/settings':
                 key=data.get('api_key')
                 if not isinstance(key,str) or not 20<=len(key.strip())<=300 or not key.strip().startswith('sk-'):raise ValueError('Vul een geldige OpenAI API-sleutel in.')
-                with connect() as c:c.execute("INSERT OR REPLACE INTO private_settings VALUES ('openai_api_key',?)",(key.strip(),))
+                with connect('admin') as c:c.execute("INSERT OR REPLACE INTO private_settings VALUES ('openai_api_key',?)",(key.strip(),))
                 return self.respond(200,{'ok':True})
             if self.path == '/api/scan':
                 WAKE.set()
                 return self.respond(202, {'ok': True})
             if self.path in ('/api/dossier','/api/dossier/import','/api/dossier/check-tvdb','/api/dossier/enrich','/api/dossier/research','/api/dossier/research-package','/api/dossier/research-import'):
-                group=next((g for g in get_catalog()['series'] if g['id']==data.get('series_id')),None)
+                group=next(iter(get_catalog(series_id=data.get('series_id') or '')['series']),None)
                 if not group: return self.respond(404,{'error':'Serie niet gevonden'})
                 profile=next((p for p in group['dossiers'] if p['scope']==data.get('scope')),None)
                 if not profile:raise ValueError('Selecteer een bestaande productie of seizoen')
@@ -866,7 +927,7 @@ class Handler(BaseHTTPRequestHandler):
                     if self.path.endswith('/test'):
                         items = fetch_source(s)
                         return self.respond(200, {'count':len(items), 'examples':[i['title'] for i in items[:5]]})
-                    with connect() as c:
+                    with connect('admin') as c:
                         c.execute('INSERT OR REPLACE INTO source_config VALUES (?,?)',(s['id'],json.dumps(s)))
                     return self.respond(200, {'ok':True, 'id':s['id']})
                 except Exception as exc:
