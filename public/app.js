@@ -11,6 +11,7 @@ let dossierGroup=null, detailRevision=null, detailRequest=0, reviewRequest=0;
 const findGroup = id => dossierGroup?.id===id?dossierGroup:state.series.find(g=>g.id===id);
 const showError = e => {$('error').textContent=e.message;$('error').hidden=false;};
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const searchKey = value => String(value??'').normalize('NFKD').toLocaleLowerCase('nl').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,' ').trim();
 const date = s => s ? new Date(s).toLocaleString('nl-NL',{day:'numeric',month:'short',year:'numeric'}) : 'Datum onbekend';
 const clock = s => s ? new Date(s).toLocaleString('nl-NL',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}) : 'Nog niet';
 const badge = (status,label=status) => `<span class="status ${{'Aangekondigd':'announced','Release gepland':'announced','In productie':'production','Geproduceerd':'complete','Beschikbaar':'available','Onbekend':'unknown'}[status]||'unknown'}">${esc(label)}</span>`;
@@ -59,6 +60,7 @@ async function openDossier(button){
  finally{button.disabled=false;}
 }
 function renderScanStatus(){
+ $('app-version').textContent='SeriesRadar'+(state.version?' v'+state.version:'');
  $('review-count').textContent=state.counts?.inbox??state.inbox.length;
  const failures=state.sources.filter(s=>s.enabled!==false&&s.error).length;
  $('scan-status').textContent=state.scanning?'Scan bezig…':`Laatste scan: ${clock(state.meta.last_finished)}${failures?' · '+failures+' bron(nen) met een fout':''}`;
@@ -81,13 +83,12 @@ async function poll(){
 function render(){
  renderScanStatus();
  $('known-titles').innerHTML=state.series.map(g=>`<option value="${esc(g.name)}"></option>`).join('');
- $('ai-config-status').textContent=state.ai?.configured?'API-sleutel ingesteld.':'Nog geen API-sleutel ingesteld.';
  renderSeries(); renderReview(); renderSources();
  if($('series-detail').open&&!$('article-detail').open&&!$('metadata-detail').open)renderDossier();
 }
 function renderSeries(){
- const query=$('search').value.toLocaleLowerCase('nl'),kind=$('kind-filter').value,status=$('status-filter').value;
- let groups=state.series.map(g=>({...g,visibleProductions:g.productions.filter(p=>(!kind||p.kind===kind)&&(!status||p.status===status))})).filter(g=>g.visibleProductions.length&&(!query||`${g.name} ${g.search_text}`.toLocaleLowerCase('nl').includes(query)));
+ const terms=searchKey($('search').value).split(' ').filter(Boolean),kind=$('kind-filter').value,status=$('status-filter').value;
+ let groups=state.series.map(g=>({...g,visibleProductions:g.productions.filter(p=>(!kind||p.kind===kind)&&(!status||p.status===status))})).filter(g=>{const text=searchKey(`${g.name} ${g.search_text}`);return g.visibleProductions.length&&terms.every(term=>text.includes(term));});
  if($('sort').value==='title')groups.sort((a,b)=>a.name.localeCompare(b.name,'nl'));
  else groups.sort((a,b)=>Date.parse(b.updated||0)-Date.parse(a.updated||0));
  $('catalog-count').textContent=`${groups.length} ${groups.length===1?'serie':'series'} · ${groups.reduce((n,g)=>n+g.article_count,0)} nieuwsartikelen`;
@@ -120,11 +121,10 @@ function renderDossier(){
  const fields=profile.fields;
  const run=group.ai_runs?.find(r=>r.scope===dossierScope);
  if($('research-detail').open&&researchContext?.series_id===group.id){const externalRun=group.ai_runs?.find(r=>r.scope===researchContext.scope&&r.method==='external');if(externalRun){$('research-import-status').textContent=externalRun.message+' · '+clock(externalRun.checked);renderResearchReport(externalRun);}}
- $('research-dossier').disabled=!!state.ai?.busy||!state.ai?.configured;
  $('enrich-dossier').disabled=!!state.scanning;
  const enrichment=group.metadata_enrichment,discovery=group.metadata_discovery;
  $('enrich-status').textContent=state.scanning?'Bronnen worden gecontroleerd…':enrichment?`${enrichment.error||'Gerichte aanvulling afgerond. Gevonden voorstellen staan in het dossier.'} · ${clock(enrichment.checked)}${discovery?.error?' · Zoekbron: '+discovery.error:''}`:'Automatisch aanvullen zoekt gericht naar ontbrekende seriegegevens en leest gekoppelde artikelen. Zonder AI- of API-kosten.';
- $('research-status').textContent=run?`${run.message} · ${clock(run.checked)}`:state.ai?.configured?'Onderzoek zonder API gebruikt je eigen chat. De betaalde API-route gebruikt GPT-5.6 Luna · max reasoning.':'Gebruik Onderzoek zonder API met je ChatGPT-abonnement. Een API-sleutel is daarvoor niet nodig.';
+ $('research-status').textContent=run?`${run.message} · ${clock(run.checked)}`:'Maak een opdracht, plak die in je eigen chat en plak het JSON-antwoord terug. De site controleert de bronnen; een API-sleutel is niet nodig.';
  const tvdbId=fields.tvdb_id?.value;
  $('dossier-tvdb').href=tvdbId?'https://thetvdb.com/dereferrer/series/'+encodeURIComponent(tvdbId):'https://thetvdb.com/search?query='+encodeURIComponent(group.name);
  $('dossier-tvdb').textContent=tvdbId?'Bestaand op TVDB · '+tvdbId+' ↗':'TVDB niet bevestigd · handmatig zoeken ↗';
@@ -138,12 +138,16 @@ function renderDossier(){
  $('dossier-linked-sources').innerHTML=(group.metadata_sources||[]).filter(s=>s.scope===dossierScope).map(s=>`<p><a href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">Gekoppelde metadata-bron ↗</a> · Laatst gelezen: ${clock(s.last_success)} · Laatste poging: ${clock(s.checked)} · ${s.error||s.status==='failed'?'Ophalen mislukt':'Bron gelezen'}</p>`).join('');
  $('dossier-checklist').innerHTML=`<div class="checklist"><strong>Nog aan te vullen</strong><p>${profile.missing.length?profile.missing.map(k=>esc(state.dossier_fields.find(f=>f.key===k)?.label||k)).join(' · '):'De basisvelden zijn gevuld. Controleer de gegevens en bronvermeldingen.'}</p></div>`;
  $('export-text').value=exportText(group,profile);
+ $('export-checks').textContent=`${profile.filled} van ${profile.total} basisvelden ingevuld. Controleer de bronnen, het seizoen en de credits per aflevering voordat je gegevens indient. Een gevuld dossier is geen goedkeuring door TVDB of IMDb.`;
  document.querySelectorAll('[data-dossier-tab]').forEach(b=>{b.classList.toggle('active',b.dataset.dossierTab===dossierTab);b.setAttribute('aria-selected',String(b.dataset.dossierTab===dossierTab));});
  for(const [key,id] of Object.entries({overview:'dossier-overview',people:'dossier-people',news:'dossier-news-panel',export:'dossier-export'}))$(id).hidden=dossierTab!==key;
 }
 function exportText(group,profile){
- let lines=[group.name,productionLabel(profile),'Productiestatus: '+profile.status,'','INVOERDOSSIER — controleer automatische voorstellen en brongegevens.',''];
- for(const f of state.dossier_fields){const v=profile.fields[f.key];lines.push(f.label+': '+(v?.value||'ONBEKEND'));if(v?.value){lines.push('Beoordeling: '+(v.origin==='manual'?'handmatig':'automatisch voorstel'));if(v.source_url)lines.push('Bron: '+v.source_url);if(v.license_url)lines.push('Bronlicentie: '+v.license_url);if(v.evidence)lines.push('Onderbouwing: '+v.evidence);}lines.push('');}
+ const target=$('export-target').value;
+ let lines=[group.name,productionLabel(profile),'Productiestatus: '+profile.status,'','Invoerhulp voor '+({both:'TVDB en IMDb',tvdb:'TVDB',imdb:'IMDb'}[target])+'. Controleer ieder gegeven bij de bron.',''];
+ if(target!=='imdb')lines.push('TVDB: controleer eerst of de serie al bestaat. Houd uitzending, seizoen en specials apart. Controleer of acteurs in minstens de helft van de afleveringen voorkomen voordat je ze als seriecast toevoegt. Een persbericht bewijst dat niet.', 'Richtlijnen: https://support.thetvdb.com/kb/faq.php?cid=4','');
+ if(target!=='tvdb')lines.push('IMDb: controleer titel, jaar en type. Voeg cast en crew toe bij de afleveringen waarvoor de credits bevestigd zijn. Een seizoenscredit bewijst niet dat iemand aan alle afleveringen meewerkt. Geef directe bronlinks mee.', 'Richtlijnen: https://help.imdb.com/article/contribution/filmography-credits/filmography-faqs/GXXHC234LLGMKTEE','');
+ for(const f of state.dossier_fields.filter(f=>f.key!=='notes')){const v=profile.fields[f.key];lines.push(f.label+': '+(v?.value||'ONBEKEND'));if(v?.value){lines.push('Controle: '+(v.origin==='manual'?'door beheerder beoordeeld':'bronvoorstel; nog zelf beoordelen'));const sources=v.sources?.length?v.sources:[v];for(const s of sources){if(s.source_url)lines.push('Bron: '+s.source_url);if(s.evidence)lines.push('Onderbouwing: '+s.evidence);}if(v.license_url)lines.push('Bronlicentie: '+v.license_url);}lines.push('');}
  lines.push('NIEUWSBRONNEN');group.articles.forEach(a=>lines.push(a.title+' — '+a.url));return lines.join('\n');
 }
 function openMetadata(target){
@@ -204,14 +208,13 @@ $('edit-dossier').onclick=openMetadata;
 $('metadata-form').onsubmit=async e=>{e.preventDefault();e.submitter.disabled=true;try{const fields={};for(const f of state.dossier_fields){const key=f.key, value=document.querySelector(`[data-field-value="${key}"]`).value,source_url=document.querySelector(`[data-field-source="${key}"]`).value,evidence=document.querySelector(`[data-field-evidence="${key}"]`).value;const old=editingProfile.fields[key]||{};if(key===editingProfile.forceField||value!==(old.value||'')||source_url!==(old.source_url||'')||evidence!==(old.evidence||''))fields[key]={value,source_url,evidence};}await request('/api/dossier',{series_id:editingProfile.series_id,scope:editingProfile.scope,revision:editingProfile.revision,fields});$('metadata-detail').close();await load();}catch(e){$('metadata-error').textContent=e.message;}finally{e.submitter.disabled=false;}};
 $('import-form').onsubmit=async e=>{e.preventDefault();e.submitter.disabled=true;const scope=dossierScope,series_id=dossierId;$('import-status').textContent='Bron uitlezen…';try{const r=await request('/api/dossier/import',{series_id,scope,url:$('import-url').value});$('import-status').textContent=r.found?r.found+' velden gevonden. Bekijk en controleer de voorstellen.':'Geen expliciete metadata gevonden. Je kunt de gegevens handmatig aanvullen.';await load();}catch(e){$('import-status').textContent=e.message;}finally{e.submitter.disabled=false;}};
 $('copy-dossier').onclick=async()=>{try{await navigator.clipboard.writeText($('export-text').value);$('export-status').textContent='Gekopieerd.';}catch{$('export-text').focus();$('export-text').select();$('export-status').textContent='Selectie klaar. Kopieer met Ctrl+C.';}};
-$('download-dossier').onclick=()=>{const g=findGroup(dossierId),p=g?.dossiers.find(p=>p.scope===dossierScope);if(!p)return;const url=URL.createObjectURL(new Blob([JSON.stringify({title:g.name,...p,news_sources:g.articles.map(a=>({title:a.title,url:a.url}))},null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download=g.name.replace(/[^a-z0-9]/gi,'-')+'-'+p.scope.replace(':','-')+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
+$('export-target').onchange=()=>{const group=findGroup(dossierId),profile=group?.dossiers.find(p=>p.scope===dossierScope);if(profile)$('export-text').value=exportText(group,profile);};
+$('download-dossier').onclick=()=>{const g=findGroup(dossierId),p=g?.dossiers.find(p=>p.scope===dossierScope);if(!p)return;const url=URL.createObjectURL(new Blob([JSON.stringify({title:g.name,...p,fields:Object.fromEntries(Object.entries(p.fields).filter(([key])=>key!=='notes')),news_sources:g.articles.map(a=>({title:a.title,url:a.url}))},null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download=g.name.replace(/[^a-z0-9]/gi,'-')+'-'+p.scope.replace(':','-')+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
 load();setInterval(poll,10000);
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)poll();});
 
 $('check-tvdb').onclick=async e=>{e.target.disabled=true;try{await request('/api/dossier/check-tvdb',{series_id:dossierId,scope:dossierScope});await load();}catch(e){$('dossier-tvdb-status').textContent=e.message;}finally{e.target.disabled=false;}};
 
-$('ai-settings').onsubmit=async e=>{e.preventDefault();e.submitter.disabled=true;try{await request('/api/ai/settings',{api_key:$('ai-key').value});$('ai-key').value='';$('ai-settings-status').textContent='Sleutel opgeslagen. Open een dossier om onderzoek te starten.';await load();}catch(err){$('ai-settings-status').textContent=err.message;}finally{e.submitter.disabled=false;}};
-$('research-dossier').onclick=async e=>{e.target.disabled=true;try{await request('/api/dossier/research',{series_id:dossierId,scope:dossierScope});await load();}catch(err){$('research-status').textContent=err.message;e.target.disabled=false;}};
 $('enrich-dossier').onclick=async e=>{e.target.disabled=true;try{const result=await request('/api/dossier/enrich',{series_id:dossierId,scope:dossierScope});await load();$('enrich-status').textContent=result.message;}catch(err){$('enrich-status').textContent=err.message;e.target.disabled=false;}};
 
 let researchContext=null;
@@ -220,7 +223,7 @@ function renderResearchReport(run){
  if(!run||run.status==='running'){panel.textContent='';return;}
  if(!run.report){panel.innerHTML='<p>Bij deze oudere import zijn de redenen en niet-bevestigde voorstellen niet bewaard. Plak hetzelfde JSON-antwoord opnieuw om een rapport per veld te krijgen; bestaande gegevens blijven behouden.</p>';return;}
  const rows=[...run.report].sort((a,b)=>(a.status==='confirmed')-(b.status==='confirmed'));
- panel.innerHTML='<h3>Controle per veld</h3><p>Niet bevestigde gegevens blijven hier bewaard. Bekijk de bron en kies Beoordelen om een bruikbaar voorstel zelf over te nemen.</p>'+rows.map((r,i)=>`<article class="news-row"><h4>${esc(state.dossier_fields.find(f=>f.key===r.field)?.label||r.field)} · ${r.status==='confirmed'?'Broncitaat bevestigd':'Niet automatisch bevestigd'}</h4><p>${esc(r.reason)}</p><details><summary>Voorstel en citaat bekijken</summary><p>${esc(r.value).replaceAll('\n','<br>')}</p><blockquote>${esc(r.evidence)}</blockquote></details>${/^https?:\/\//i.test(r.source_url)?`<a href="${esc(r.source_url)}" target="_blank" rel="noopener noreferrer">Bron bekijken ↗</a>`:''}${r.code!=='invalid'&&state.dossier_fields.some(f=>f.key===r.field&&f.key!=='notes')?` <button type="button" data-review-proposal="${i}">Beoordelen / overnemen</button>`:''}</article>`).join('');
+ panel.innerHTML='<h3>Controle per veld</h3><p>Afwijkingen, onbekende gegevens en synopsisconcepten blijven hier staan. Bekijk de bron en kies Beoordelen om een bruikbaar voorstel zelf over te nemen.</p>'+rows.map((r,i)=>`<article class="news-row"><h4>${esc(state.dossier_fields.find(f=>f.key===r.field)?.label||r.field)} · ${r.status==='confirmed'?'Bron en waarde gecontroleerd':r.code==='not_found'?'Niet gevonden':'Zelf beoordelen'}</h4><p>${esc(r.reason)}</p><details><summary>Voorstel en citaat bekijken</summary><p>${esc(r.value).replaceAll('\n','<br>')}</p><blockquote>${esc(r.evidence)}</blockquote></details>${/^https?:\/\//i.test(r.source_url)?`<a href="${esc(r.source_url)}" target="_blank" rel="noopener noreferrer">Bron bekijken ↗</a>`:''}${r.code!=='invalid'&&r.code!=='not_found'&&r.value&&state.dossier_fields.some(f=>f.key===r.field&&f.key!=='notes')?` <button type="button" data-review-proposal="${i}">Beoordelen / overnemen</button>`:''}</article>`).join('');
  panel.querySelectorAll('[data-review-proposal]').forEach(button=>button.onclick=()=>{
   if(!researchContext)return;
   const group=findGroup(researchContext.series_id),profile=group?.dossiers.find(p=>p.scope===researchContext.scope);
@@ -238,10 +241,16 @@ async function submitResearch(result){
  const response=await request('/api/dossier/research-import',result);
  await load();return response;
 }
+function researchOptions(){return {mode:$('research-mode').value,target:$('research-target').value,brief:$('research-brief').value};}
+async function updateResearchPrompt(){
+ researchContext=await request('/api/dossier/research-package',{series_id:dossierId,scope:dossierScope,options:researchOptions()});
+ $('research-prompt').value=researchContext.prompt;
+}
+$('research-options').onsubmit=async e=>{e.preventDefault();e.submitter.disabled=true;try{await updateResearchPrompt();$('research-import-feedback').textContent='Opdracht bijgewerkt. Kopieer de volledige tekst naar je chat.';}catch(err){$('research-import-feedback').textContent=err.message;}finally{e.submitter.disabled=false;}};
 $('research-external').onclick=async e=>{
  e.target.disabled=true;
  try{
-  researchContext=await request('/api/dossier/research-package',{series_id:dossierId,scope:dossierScope});
+  await updateResearchPrompt();
   const selectedProfile=findGroup(researchContext.series_id)?.dossiers.find(p=>p.scope===researchContext.scope);
   $('research-context').textContent=researchContext.title+(selectedProfile?' · '+productionLabel(selectedProfile):'');
   $('research-prompt').value=researchContext.prompt;$('research-result').value='';
@@ -266,11 +275,12 @@ $('research-import-form').onsubmit=async e=>{
 
 if(isAdmin&&typeof document.modelContext?.registerTool==='function'){
  const targetSchema={type:'object',properties:{series_id:{type:'string'},scope:{type:'string'}},required:['series_id','scope'],additionalProperties:false};
+ const optionsSchema={type:'object',properties:{mode:{type:'string',enum:['missing','all','verify']},target:{type:'string',enum:['both','tvdb','imdb']},brief:{type:'string',maxLength:2000}},additionalProperties:false};
  const factSchema={type:'object',properties:{field:{type:'string'},value:{type:'string'},source_url:{type:'string'},evidence:{type:'string'}},required:['field','value','source_url','evidence'],additionalProperties:false};
  const researchTools=[
   {name:'list_research_dossiers',description:'Lees beschikbare SeriesRadar-seriedossiers en productie/seizoen-IDs. Geeft ook het geselecteerde dossier terug. Geen wijzigingen.',inputSchema:{type:'object',properties:{},additionalProperties:false},annotations:{readOnlyHint:true,untrustedContentHint:true},execute:async()=>{await load();return {selected:{series_id:dossierId,scope:dossierScope},series:state.series.map(g=>({series_id:g.id,title:g.name,productions:g.dossiers.map(p=>({scope:p.scope,kind:p.kind,season:p.season}))}))};}},
-  {name:'get_research_dossier',description:'Lees de onderzoeksopdracht, bronlinks en actuele onderzoeksstatus voor één SeriesRadar-productie. Intern notitieveld en inloggegevens worden niet gedeeld. Gebruik deze functie opnieuw om een gestarte broncontrole te volgen.',inputSchema:targetSchema,annotations:{readOnlyHint:true,untrustedContentHint:true},execute:async input=>request('/api/dossier/research-package',input)},
-  {name:'submit_research_result',description:'Voeg brononderbouwde AI-voorstellen toe aan het opgegeven SeriesRadar-dossier. Vereist toestemming van de gebruiker voor het opslaan. Start asynchrone broncontrole zonder OpenAI API: alleen bevestigde citaten worden opgeslagen en publiek zichtbaar als AI-voorstel; handmatige gegevens houden voorrang. Een accepted/running antwoord is nog geen voltooiing: controleer daarna get_research_dossier.',inputSchema:{type:'object',properties:{...targetSchema.properties,title:{type:'string'},facts:{type:'array',minItems:1,maxItems:60,items:factSchema}},required:['series_id','scope','title','facts'],additionalProperties:false},annotations:{readOnlyHint:false,destructiveHint:false,untrustedContentHint:true},execute:submitResearch}
+  {name:'get_research_dossier',description:'Lees de onderzoeksopdracht, bronlinks en actuele onderzoeksstatus voor één productie. Kies met options ontbrekende velden, volledig onderzoek of controle; geef target tvdb/imdb/both en extra aanwijzingen in brief. Intern notitieveld en inloggegevens worden niet gedeeld. Lees opnieuw om de broncontrole te volgen.',inputSchema:{...targetSchema,properties:{...targetSchema.properties,options:optionsSchema}},annotations:{readOnlyHint:true,untrustedContentHint:true},execute:async input=>request('/api/dossier/research-package',input)},
+  {name:'submit_research_result',description:'Sla brononderbouwde voorstellen op na toestemming van de gebruiker. Neem schema_version en dossier_revision uit de opdracht over. De server controleert pagina, citaat, waarde en seizoen zonder OpenAI API. Afwijkingen, synopsissen en onzekere relaties blijven ter beoordeling. Handmatige waarden blijven behouden. Een running-antwoord is geen voltooiing: controleer daarna get_research_dossier.',inputSchema:{type:'object',properties:{...targetSchema.properties,title:{type:'string'},schema_version:{type:'integer',enum:[2]},dossier_revision:{type:'integer',minimum:0},facts:{type:'array',minItems:0,maxItems:60,items:factSchema},unanswered:{type:'array',maxItems:30,items:{type:'object',properties:{field:{type:'string'},reason:{type:'string'}},required:['field','reason'],additionalProperties:false}}},required:['series_id','scope','title','facts'],additionalProperties:false},annotations:{readOnlyHint:false,destructiveHint:false,untrustedContentHint:true},execute:submitResearch}
  ];
  for(const tool of researchTools){try{Promise.resolve(document.modelContext.registerTool(tool)).catch(()=>{});}catch{}}
 }

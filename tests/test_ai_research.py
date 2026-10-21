@@ -43,8 +43,114 @@ class ResearchTests(unittest.TestCase):
         report=[]
         proposals=[{'field':'episodes','value':str(n),'source_url':'https://example.org','evidence':f'Teststad telt {n} afleveringen.'} for n in (8,10)]
         facts,rejected=ai_research.verify_proposals(proposals,{'name':'Teststad'},{'season':1},lambda *_:'Teststad telt 8 afleveringen. Teststad telt 10 afleveringen.',diagnostics=report)
-        self.assertEqual(facts['episodes']['value'],'8')
-        self.assertEqual((rejected,report[1]['code']),(1,'conflict'))
+        self.assertNotIn('episodes',facts)
+        self.assertEqual(rejected,2)
+        self.assertTrue(all(r['code']=='conflict' and r['status']=='unconfirmed' for r in report))
+
+    def test_a_real_quote_does_not_confirm_an_invented_value(self):
+        cases=[('episodes','99','Teststad telt acht afleveringen.'),
+               ('runtime','90 minuten','Elke aflevering van Teststad duurt 50 minuten.'),
+               ('cast','Anna | Jan','Anna speelt Noor in Teststad.'),
+               ('directors','Anna','Anna speelt Noor in Teststad.'),
+               ('release_date','2026-10-15','Teststad is vanaf 14 oktober 2026 te zien.')]
+        for field,value,quote in cases:
+            with self.subTest(field=field):
+                report=[]
+                facts,rejected=ai_research.verify_proposals([{'field':field,'value':value,
+                    'source_url':'https://example.org','evidence':quote}],{'name':'Teststad'},
+                    {'season':1},lambda *_:quote,diagnostics=report)
+                self.assertEqual((facts,rejected),({},1))
+                self.assertEqual(report[0]['code'],'value_unconfirmed')
+
+    def test_explicit_values_and_roles_are_supported(self):
+        for field,value,quote in [('episodes','8','De achtdelige serie Teststad.'),
+                ('runtime','50 minuten','Elke aflevering duurt 50 minuten.'),
+                ('cast','Anna | Noor','Anna speelt Noor.'),('directors','Anna Vos','De regie is van Anna Vos.'),
+                ('release_date','2026-10-14','Vanaf 14 oktober 2026 te zien.')]:
+            with self.subTest(field=field):self.assertTrue(ai_research.value_supported(field,value,quote))
+
+    def test_crossed_cast_roles_are_not_inferred(self):
+        self.assertFalse(ai_research.value_supported('cast','Anna | Jan','Anna speelt Noor en Bas speelt Jan.'))
+        self.assertFalse(ai_research.value_supported('cast','Anna | Noor','Anna en Bas spelen Noor en Jan.'))
+        self.assertFalse(ai_research.value_supported('directors','Bas Bos','Anna Vos doet de regie. Bas Bos is acteur.'))
+
+    def test_episode_rows_need_a_matching_number_title_and_date(self):
+        quote='Seizoen 2 van Teststad, aflevering 1 De vondst, vanaf 14 oktober 2026.'
+        self.assertTrue(ai_research.value_supported('episode_guide','1 | De vondst | 2026-10-14',quote))
+        self.assertFalse(ai_research.value_supported('episode_guide','2 | De vondst | 2026-10-14',quote))
+        self.assertFalse(ai_research.value_supported('episode_guide','1 | De vondst | 2026-10-15',quote))
+
+    def test_partial_episode_count_is_not_an_order(self):
+        quote='De eerste acht afleveringen van Teststad zijn te zien.'
+        report=[]
+        result=ai_research.verify_proposals([{'field':'episodes','value':'8','source_url':'https://example.org',
+            'evidence':quote}],{'name':'Teststad'},{'season':1},lambda *_:quote,diagnostics=report)
+        self.assertEqual(result,({},1))
+        self.assertEqual(report[0]['code'],'partial_count')
+
+    def test_uncertain_negative_and_paraphrased_claims_need_review(self):
+        for field,value,quote in [('episodes','8','Teststad krijgt mogelijk acht afleveringen.'),
+                ('episodes','8','Teststad krijgt geen acht afleveringen.'),
+                ('synopsis','Een eigen beschrijving.','Teststad gaat over een familie.')]:
+            report=[]
+            facts,rejected=ai_research.verify_proposals([{'field':field,'value':value,
+                'source_url':'https://example.org','evidence':quote}],{'name':'Teststad'},
+                {'season':1},lambda *_:quote,diagnostics=report)
+            self.assertEqual((facts,rejected),({},1))
+            self.assertEqual(report[0]['status'],'unconfirmed')
+
+    def test_second_season_needs_explicit_season_context(self):
+        quote='Teststad telt acht afleveringen.'
+        report=[]
+        facts,rejected=ai_research.verify_proposals([{'field':'episodes','value':'8',
+            'source_url':'https://example.org','evidence':quote}],{'name':'Teststad'},
+            {'season':2},lambda *_:quote,diagnostics=report)
+        self.assertEqual((facts,rejected),({},1))
+        self.assertEqual(report[0]['code'],'season_unconfirmed')
+
+    def test_source_must_name_the_series(self):
+        quote='Dit programma telt acht afleveringen.'
+        report=[]
+        facts,rejected=ai_research.verify_proposals([{'field':'episodes','value':'8',
+            'source_url':'https://example.org','evidence':quote}],{'name':'Teststad'},
+            {'season':1},lambda *_:quote,diagnostics=report)
+        self.assertEqual((facts,rejected),({},1))
+        self.assertEqual(report[0]['code'],'identity_unconfirmed')
+
+    def test_existing_values_are_preserved_and_people_keep_their_sources(self):
+        claim=lambda value:{'value':value,'origin':'external_ai','source_url':'https://example.org/new',
+                            'sources':[{'source_url':'https://example.org/new','evidence':'New'}]}
+        profile={'fields':{'episodes':{'value':'8','origin':'automatic'},
+                           'runtime':{'value':'40','origin':'manual'},
+                           'cast':{'value':'Anna | Noor','origin':'tvmaze','source_url':'https://tvmaze.com',
+                                   'evidence':'Cast','license_url':'https://creativecommons.org/licenses/by-sa/4.0/'}}}
+        report=[{'field':f,'status':'confirmed'} for f in ('episodes','runtime','cast')]
+        facts=ai_research.reconcile_facts({'episodes':claim('10'),'runtime':claim('50'),
+                                         'cast':claim('Bas | Jan')},profile,report)
+        self.assertEqual(set(facts),{'cast'})
+        self.assertEqual(facts['cast']['value'],'Anna | Noor\nBas | Jan')
+        self.assertEqual(len(facts['cast']['sources']),2)
+        self.assertIn('license_url',facts['cast'])
+        self.assertEqual([r.get('code') for r in report[:2]],['existing_conflict','manual_preserved'])
+
+    def test_chat_package_selects_fields_and_carries_identity_and_instructions(self):
+        group={'id':'series-1','name':'Teststad','articles':[],
+               'productions':[{'kind':'Nieuwe serie','season':1,'articles':[]}]}
+        profile={'scope':'new:1','kind':'Nieuwe serie','season':1,'revision':3,
+                 'fields':{'episodes':{'value':'8'},'notes':{'value':'Private note'}}}
+        packet=ai_research.research_package(group,profile,{'mode':'verify','target':'imdb','brief':'Controleer ook de regie.'})
+        self.assertEqual(packet['dossier_revision'],3)
+        self.assertEqual(packet['schema_version'],2)
+        self.assertIn('Controleer ook de regie.',packet['prompt'])
+        self.assertIn('IMDb',packet['prompt'])
+        context=json.loads(packet['prompt'].split('DOSSIERCONTEXT:\n',1)[1])
+        self.assertEqual(context['requested_fields'],[['episodes','Aantal afleveringen']])
+        self.assertNotIn('Private note',packet['prompt'])
+        missing=ai_research.research_package(group,profile)
+        context=json.loads(missing['prompt'].split('DOSSIERCONTEXT:\n',1)[1])
+        self.assertNotIn('episodes',[f[0] for f in context['requested_fields']])
+        for invalid in ([],{'mode':'invalid'},{'brief':'a'*2001}):
+            with self.assertRaises(ValueError):ai_research.research_options(invalid)
 
     def test_empty_research_changes_no_facts(self):
         self.assertEqual(ai_research.verify_proposals([],{'name':'Teststad'},{'season':1},lambda *_:self.fail('No source needed')),({},0))

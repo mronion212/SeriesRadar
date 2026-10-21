@@ -1,4 +1,4 @@
-name: Test and Docker build
+name: Testen en release
 on: [push, pull_request]
 permissions:
   contents: read
@@ -7,12 +7,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - run: python .github/release.py
       - run: python -m unittest discover -s tests -v
       - run: python tests/http_smoke.py
       - run: node --check public/app.js
@@ -38,3 +41,27 @@ jobs:
           PY
       - if: always()
         run: docker logs radar-test || true
+  release:
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Versie en wijzigingsnotities controleren
+        run: python .github/release.py --notes-file "$RUNNER_TEMP/seriesradar-release.md"
+      - name: Release publiceren
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          version=$(cat VERSION)
+          if gh release view "v$version" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release v$version bestaat al."
+          else
+            gh release create "v$version" --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" --title "SeriesRadar $version" \
+              --notes-file "$RUNNER_TEMP/seriesradar-release.md"
+          fi

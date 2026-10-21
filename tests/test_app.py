@@ -162,6 +162,8 @@ class RadarTests(unittest.TestCase):
         self.assertNotIn('evidence',json.dumps(card))
         self.assertEqual(card['dossiers'][0]['filled'],full['dossiers'][0]['filled'])
         self.assertEqual(card['dossiers'][0]['cast_count'],1)
+        self.assertIn('Anna Vos',card['search_text'])
+        self.assertNotIn('source_url',card['search_text'])
         self.assertEqual(overview['inbox'],[])
         detail=app.get_catalog(series_id=full['id'])
         self.assertNotIn('inbox',detail)

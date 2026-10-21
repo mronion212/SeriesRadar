@@ -29,6 +29,7 @@ import ai_research
 import metadata_catalog
 
 ROOT = Path(__file__).parent
+VERSION = (ROOT / 'VERSION').read_text(encoding='utf-8').strip()
 DB = Path(os.environ.get('DATA_DIR', str(ROOT / 'data'))) / 'radar.sqlite3'
 INTERVAL = max(60, int(os.environ.get('SCAN_INTERVAL_SECONDS', '1800')))
 LOCK = threading.Lock()
@@ -347,9 +348,14 @@ def catalog_summary(result):
             profiles.append({**{k:p[k] for k in ('scope','kind','season','filled','total')},
                 'cast_count':len([line for line in p['fields'].get('cast',{}).get('value','').splitlines() if line]),
                 'fields':{k:{'value':p['fields'][k]['value']} for k in ('platforms','networks','release_date') if k in p['fields']}})
+        searchable=('original_title','alternative_titles','format','countries','languages','genres','networks',
+                    'platforms','production_companies','cast','directors','writers','creators','producers',
+                    'presenters','participants','imdb_id','tvdb_id')
+        metadata=dict.fromkeys(p['fields'][k]['value'] for p in g['dossiers'] for k in searchable
+                               if p['fields'].get(k,{}).get('value'))
         groups.append({**{k:g[k] for k in ('id','name','updated','latest_news')},
             'article_count':len(g['articles']),
-            'search_text':' '.join(a['title']+' '+a['publisher'] for a in g['articles']),
+            'search_text':' '.join([*(a['title']+' '+a['publisher'] for a in g['articles']),*metadata]),
             'productions':[{k:p[k] for k in ('kind','season','status','articles')} for p in g['productions']],
             'dossiers':profiles})
     return {'series':groups,'dossier_fields':result['dossier_fields'],'inbox':[],'ignored':[],
@@ -443,7 +449,7 @@ def resolve_article_url(url):
     raise ValueError('Google Nieuws kon niet naar een directe bron worden herleid')
 
 
-def run_research(group,profile,key=None,proposals=None):
+def run_research(group,profile,key=None,proposals=None,unanswered=None):
     diagnostics=[]
     try:
         if proposals is None:
@@ -452,18 +458,26 @@ def run_research(group,profile,key=None,proposals=None):
             facts,rejected=ai_research.verify_proposals(proposals,group,profile,read_article_page,diagnostics=diagnostics)
         stamp=now()
         for field in facts.values():field['checked']=stamp
+        current=next(iter(get_catalog(series_id=group['id'])['series']),None)
+        current_profile=next((p for p in (current or {}).get('dossiers',[]) if p['scope']==profile['scope']),None)
+        if not current_profile:raise ValueError('Het dossier is tijdens het onderzoek gewijzigd of verwijderd. Open het opnieuw.')
         with connect() as c:
+            c.execute('BEGIN IMMEDIATE')
+            manual=c.execute('SELECT fields FROM dossier_data WHERE series_id=? AND scope=?',(group['id'],profile['scope'])).fetchone()
+            current_profile['fields'].update(json.loads(manual['fields']) if manual else {})
+            facts=ai_research.reconcile_facts(facts,current_profile,diagnostics)
+            for item in (unanswered or [])[:len(dossier.KEYS)]:
+                if (isinstance(item,dict) and isinstance(item.get('field'),str) and item['field'] in dossier.KEYS-{'notes'}
+                        and isinstance(item.get('reason'),str) and item['field'] not in facts):
+                    diagnostics.append({'field':item['field'],'value':'','source_url':'','evidence':'',
+                        'status':'unconfirmed','code':'not_found','reason':item['reason'][:600]})
+            if diagnostics:rejected=sum(r['status']!='confirmed' for r in diagnostics)
             previous=c.execute('SELECT facts FROM ai_runs WHERE series_id=? AND scope=?',(group['id'],profile['scope'])).fetchone()
             merged={**json.loads(previous['facts'] or '{}'),**facts} if previous else facts
             message=f'{len(facts)} brongecontroleerde voorstellen opgeslagen; {rejected} niet bevestigd. Controleer de inhoud.'
             if proposals is not None:message='Import afgerond zonder API. '+message
             if rejected:message+=' Niet bevestigd betekent niet automatisch onjuist; bekijk de redenen per veld.'
             if not facts:message+=' Bestaande gegevens zijn behouden.'
-            manual=c.execute('SELECT fields FROM dossier_data WHERE series_id=? AND scope=?',(group['id'],profile['scope'])).fetchone()
-            manual_fields=json.loads(manual['fields']) if manual else {}
-            for item in diagnostics:
-                if item['status']=='confirmed' and item['field'] in manual_fields:
-                    item['reason']+=' Het bestaande handmatige veld blijft leidend.'
             c.execute("UPDATE ai_runs SET status='done',checked=?,message=?,facts=?,report=? WHERE series_id=? AND scope=?",
                       (stamp,message,json.dumps(merged),json.dumps(diagnostics),group['id'],profile['scope']))
     except Exception as exc:
@@ -788,7 +802,7 @@ class Handler(BaseHTTPRequestHandler):
                 meta=dict(c.execute("SELECT key,value FROM meta WHERE key IN ('last_finished','next_scan')").fetchall())
             with CATALOG_LOCK:
                 status={'revision':catalog_revision(admin=path.startswith('/api/admin/')),
-                        'detail_revision':DETAIL_REVISION,'meta':meta,'scanning':LOCK.locked()}
+                        'detail_revision':DETAIL_REVISION,'version':VERSION,'meta':meta,'scanning':LOCK.locked()}
             return self.respond(200, status)
         if path.startswith(('/api/series/','/api/admin/series/')):
             result=get_catalog(series_id=path.rsplit('/',1)[-1])
@@ -809,13 +823,13 @@ class Handler(BaseHTTPRequestHandler):
             if not summary:
                 result['series']=[public_group(group) for group in result['series']]
             result['dossier_fields']=[f for f in result['dossier_fields'] if f['key']!='notes']
-            return self.respond(200, {'series':result['series'],'dossier_fields':result['dossier_fields'],'inbox':[],'ignored':[],'sources':[],'meta':meta,'scanning':LOCK.locked(),'interval':INTERVAL,'revision':revision})
+            return self.respond(200, {'series':result['series'],'dossier_fields':result['dossier_fields'],'inbox':[],'ignored':[],'sources':[],'meta':meta,'scanning':LOCK.locked(),'interval':INTERVAL,'revision':revision,'version':VERSION})
         if path == '/api/admin/dashboard':
             revision=catalog_revision(admin=True)
             with connect() as c:
                 statuses = {r['id']: dict(r) for r in c.execute('SELECT * FROM sources')}
                 meta = dict(c.execute('SELECT key,value FROM meta').fetchall())
-            return self.respond(200, {**get_catalog(summary=summary), 'ai':{'configured':bool(ai_key()),'busy':AI_LOCK.locked(),'model':ai_research.MODEL,'reasoning':ai_research.EFFORT}, 'sources': [{**statuses.get(s['id'], {}), **s} for s in sources()], 'meta': meta, 'scanning': LOCK.locked(), 'interval': INTERVAL,'revision':revision})
+            return self.respond(200, {**get_catalog(summary=summary), 'ai':{'configured':bool(ai_key()),'busy':AI_LOCK.locked(),'model':ai_research.MODEL,'reasoning':ai_research.EFFORT}, 'sources': [{**statuses.get(s['id'], {}), **s} for s in sources()], 'meta': meta, 'scanning': LOCK.locked(), 'interval': INTERVAL,'revision':revision,'version':VERSION})
         files = {'/': ('index.html', 'text/html; charset=utf-8'), '/admin': ('index.html', 'text/html; charset=utf-8'), '/admin/': ('index.html', 'text/html; charset=utf-8'), '/app.js': ('app.js', 'text/javascript; charset=utf-8'), '/style.css': ('style.css', 'text/css; charset=utf-8'), '/favicon.svg': ('favicon.svg', 'image/svg+xml')}
         if path in files:
             name, kind = files[path]
@@ -854,18 +868,25 @@ class Handler(BaseHTTPRequestHandler):
                     except Exception:LOCK.release();raise
                     return self.respond(202,{'ok':True,'message':'Gerichte bronzoekopdracht en artikeluitlezing gestart. Het dossier ververst na afloop. Eerder gecontroleerde bronnen hebben een dagcache.'})
                 if self.path.endswith('/research-package'):
-                    return self.respond(200,ai_research.research_package(group,profile))
+                    return self.respond(200,ai_research.research_package(group,profile,data.get('options')))
                 if self.path.endswith('/research-import'):
                     result=ai_research.parse_result(data['raw']) if 'raw' in data else data
                     if (result.get('series_id')!=group['id'] or result.get('scope')!=profile['scope']
                             or not isinstance(result.get('title'),str) or series_catalog.normalize(result['title'])!=series_catalog.normalize(group['name'])):
                         raise ValueError('Dit resultaat hoort bij een ander dossier of seizoen. Kopieer de actuele onderzoeksopdracht.')
+                    if result.get('schema_version') is not None:
+                        if result['schema_version']!=2 or type(result.get('dossier_revision')) is not int:
+                            raise ValueError('Gebruik antwoordformaat 2 met de dossier_revision uit de opdracht.')
+                        if result['dossier_revision']!=profile['revision']:
+                            return self.respond(409,{'error':'Dit dossier is intussen aangepast. Maak een nieuwe onderzoeksopdracht zodat je chat de huidige gegevens gebruikt.'})
+                    unanswered=result.get('unanswered',[])
+                    if not isinstance(unanswered,list):raise ValueError('unanswered moet een lijst zijn.')
                     proposals=ai_research.validate_batch(result.get('facts'))
                     if not AI_LOCK.acquire(blocking=False):return self.respond(409,{'error':'Er loopt al een onderzoek of broncontrole. Wacht tot dit klaar is.'})
                     try:
                         with connect() as c:
                             c.execute("INSERT INTO ai_runs (series_id,scope,status,checked,message,facts,method) VALUES (?,?,'running',?,'Geplakt resultaat verwerken: bronpagina’s lezen, zonder OpenAI API…','{}','external') ON CONFLICT(series_id,scope) DO UPDATE SET status='running',checked=excluded.checked,message=excluded.message,method=excluded.method,report=NULL",(group['id'],profile['scope'],now()))
-                        threading.Thread(target=run_research,args=(group,profile,None,proposals),daemon=True).start()
+                        threading.Thread(target=run_research,args=(group,profile,None,proposals,unanswered),daemon=True).start()
                     except Exception:
                         AI_LOCK.release();raise
                     return self.respond(202,{'ok':True,'status':'running','message':'Broncontrole gestart; voorstellen worden pas na controle opgeslagen. Lees de onderzoeksstatus opnieuw voor het resultaat.'})

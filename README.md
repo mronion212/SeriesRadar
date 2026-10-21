@@ -208,33 +208,32 @@ Daarnaast controleert iedere scan maximaal twee serie-identiteiten in de publiek
 
 TVmaze-gegevens blijven herkenbaar als bronvoorstel met een link naar TVmaze. Deze gegevens vallen onder [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/); de bronlicentie blijft ook in de JSON-export en tekstexport staan. Nieuwsartikelen en handmatige gegevens hebben hun eigen herkomst.
 
-## Zonder API-tegoed
+## Onderzoeken met je eigen chat
 
-Kies in Beheer bij een serie **Onderzoek zonder API**. Dit biedt twee routes:
+Open in Beheer een serie en kies **Opdracht voor chat maken**.
 
-1. **ChatGPT-web:** kopieer de volledige onderzoeksopdracht, voer deze in je eigen chat uit en plak het JSON-antwoord in het importformulier. Kies Luna/max in je chat als die instellingen beschikbaar zijn; SeriesRadar kan de modelkeuze niet afdwingen.
-2. **ChatGPT/Codex-desktop:** open de beheerpagina in de ingebouwde browser, log in en vraag de agent het geselecteerde dossier te onderzoeken en voorstellen op te slaan. De pagina biedt `list_research_dossiers`, `get_research_dossier` en `submit_research_result`. Deze functies zijn alleen in beheer beschikbaar en gebruiken de bestaande authenticatie. De officiële documentatie noemt Sol/Terra voor WebMCP; Luna heeft deze functie momenteel uitgeschakeld. Gebruik voor Luna route 1.
+1. Kies **Ontbrekende gegevens aanvullen**, **Het hele dossier onderzoeken** of **Ingevulde gegevens controleren**.
+2. Kies TVDB, IMDb of beide en schrijf eventueel extra aanwijzingen. Bijvoorbeeld: “Zoek de volledige cast met personages voor seizoen 2 en controleer het afleveringaantal.”
+3. Klik **Onderzoeksopdracht bijwerken** en **Opdracht kopiëren**.
+4. Plak de volledige opdracht in je eigen chat en laat die op het web zoeken. De opdracht bevat de titel, het seizoen, bestaande gegevens, bronnen en het antwoordformaat.
+5. Plak het JSON-antwoord terug en klik **Geplakt resultaat toepassen**. SeriesRadar leest maximaal tien bronpagina’s opnieuw en controleert citaat, waarde en seizoen.
+6. Bekijk het rapport. Passende voorstellen vullen het dossier aan. Afwijkingen, onzekere relaties, onbereikbare bronnen en synopsisconcepten blijven staan om zelf te beoordelen. Handmatige waarden worden niet overschreven.
+7. Kies bij **IMDb / TVDB** de gewenste invoerhulp en kopieer de gegevens met hun bronvermeldingen.
 
-Beide routes gebruiken geen OpenAI API-aanroep vanuit SeriesRadar. De limieten van je ChatGPT/Codex-abonnement blijven gelden; onbeperkt gebruik wordt niet gegarandeerd.
-De server controleert het dossier en seizoen van het importpakket, leest de publieke bronpagina's opnieuw en controleert citaten. Codeblokken en uitleg rondom één volledig JSON-object zijn toegestaan. Getallen en tekstlijsten worden omgezet naar tekst; Markdown-bronlinks worden herkend. Een foutief veld blokkeert de andere voorstellen niet. Een leeg `facts: []` is ook geldig en verandert geen bestaande feiten.
+Deze route gebruikt geen OpenAI API-sleutel of API-tegoed. Je voert de zoekopdracht zelf uit in je chat. De betaalde onderzoeksknoppen worden niet meer op de site aangeboden.
 
-Alleen bevestigde voorstellen worden toegevoegd, met een ophaaldatum en `external_ai` als herkomst. Meerdere bevestigde cast- en makersvoorstellen worden samengevoegd met hun eigen bronvermeldingen. Seizoencontrole gebruikt het citaat en de lokale context: een verwijzing naar seizoen 1 elders op een pagina wijst gegevens voor seizoen 2 niet automatisch af. Handmatige velden blijven leidend. Niet bevestigde voorstellen en de reden blijven in het laatste importrapport staan. Kies **Beoordelen / overnemen** om na eigen broncontrole een voorstel in het bestaande bewerkformulier te bevestigen. Onderzoek zonder bevestigde feiten wijzigt bestaande feiten niet.
-Een antwoord `running` betekent dat de broncontrole nog loopt. De interface ververst de status; een agent kan `get_research_dossier` opnieuw gebruiken. Een broncontrole bewijst niet dat de interpretatie van een citaat correct is.
+Het antwoordformaat bevat `schema_version: 2`, `series_id`, `scope`, `title`, `dossier_revision`, `facts` en optioneel `unanswered`. Neem de identiteit en revisie uit de opdracht over. Als je het dossier ondertussen handmatig hebt veranderd, vraagt de site om een nieuwe opdracht. Oude antwoorden zonder schema-versie blijven bruikbaar; de bron- en waardecontroles blijven daarop van toepassing. Eén volledig JSON-object mag tussen codeblokken of uitleg staan. Een fout in één feit blokkeert de overige feiten niet.
 
-## Optioneel met API-tegoed
+Een citaat terugvinden is niet genoeg om de betekenis te bewijzen. De controles zijn bewust voorzichtig: aantallen moeten overeenkomen, acteur en rol moeten expliciet gekoppeld zijn en gegevens voor een vervolgseizoen hebben seizoencontext nodig. Als bronnen elkaar tegenspreken, kiest de site geen waarde. Een eigen synopsis blijft een te beoordelen concept. Bij **Beoordelen / overnemen** kun je na broncontrole een voorstel handmatig bevestigen. Een leeg `facts: []` wist niets.
 
-In **Beheer → Bronnen → AI-onderzoek** kun je een OpenAI API-sleutel opslaan.
-Deze staat in de serverdatabase (dus ook in databaseback-ups), wordt nooit in een dashboardantwoord teruggegeven en is uitsluitend via de beveiligde beheerroute te wijzigen.
-Als alternatief ondersteunt de app de servervariabele `OPENAI_API_KEY`; een opgeslagen sleutel heeft voorrang.
-API-gebruik wordt apart door OpenAI gefactureerd.
+De kopieer/plakroute werkt zonder websitefuncties. Voor browsers die deze ondersteunen blijven `list_research_dossiers`, `get_research_dossier` en `submit_research_result` beschikbaar in Beheer. Deze gebruiken dezelfde broncontrole en vereisen de bestaande beheerauthenticatie. Een `running`-antwoord betekent dat de controle nog loopt.
 
-Open een seriedossier, kies de productie/het seizoen en klik **Dossier onderzoeken met AI**.
-Het onderzoek gebruikt uitsluitend `gpt-5.6-luna`, `reasoning.effort=max`, Responses API en web search.
-Er is geen automatische terugval naar een ander model. De app draait maximaal één onderzoek tegelijk, op verzoek van een beheerder.
-Het onderzoek vraagt alle dossiervelden op en controleert maximaal tien geraadpleegde bronpagina's op titel, seizoen en het aangehaalde citaat.
-Niet bevestigde gegevens worden overgeslagen; handmatige velden houden voorrang. Een gevonden citaat bewijst niet dat de interpretatie klopt: resultaten blijven herkenbaar als AI-voorstel.
-Bij een fout blijven eerdere voorstellen staan. Na een herstart kan een onderbroken onderzoek opnieuw worden gestart.
+De invoerhulpen volgen de aandachtspunten van [TVDB](https://support.thetvdb.com/kb/faq.php?cid=4) en [IMDb](https://help.imdb.com/article/contribution/filmography-credits/filmography-faqs/GXXHC234LLGMKTEE). Controleer onder meer de bestaande titel, het jaar, het seizoen en de credits per aflevering. De export bevat alle opgeslagen bronvermeldingen en licentiegegevens, maar geen interne notities. Het blijft een invoerhulp; SeriesRadar dient niets automatisch in en garandeert geen acceptatie.
 
-Publieke lezers zien de laatste scan, feedcontrole, eerste vondst en laatste succesvolle artikeluitlezing.
-Een mislukte nieuwe poging wist het tijdstip van de vorige succesvolle uitlezing niet.
-Google Nieuws-fragmenten worden expliciet als onvolledig gemarkeerd. Koppel een directe bron of gebruik AI-onderzoek om aanvullende bronnen te vinden.
+Publieke lezers zien de laatste scan, feedcontrole, eerste vondst en laatste succesvolle artikeluitlezing. Een mislukte poging wist de vorige succesvolle uitlezing niet. Google Nieuws-fragmenten zijn als onvolledig gemarkeerd.
+
+## Versies en releases
+
+`VERSION` bevat het versienummer; `CHANGELOG.md` bevat de bijbehorende Nederlandse wijzigingsnotities. De eerste release is `v0.1.0`. Voor een correctie gaat het laatste getal met één omhoog, bijvoorbeeld `0.1.0` → `0.1.1`. Een volgende minor begint op `.0`; een volgende major begint op `.0.0`. Sla geen nummers over en gebruik een versie nooit voor een andere commit.
+
+Iedere update op main krijgt een nieuwe versie en een changelogtekst. GitHub Actions controleert de versie, draait de tests en bouwt en start de Docker-image. Alleen als die controles slagen, publiceert Actions de release met de tag `v<versie>` en de tekst uit het changelog. Dezelfde workflow opnieuw uitvoeren maakt geen tweede release voor dezelfde commit. De site toont de versie onderaan de pagina.

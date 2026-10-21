@@ -120,13 +120,18 @@ with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ,{'ADMIN_U
         assert 'metadata_discovery' not in call('/api/dashboard',auth=False)[1]['series'][0]
         packet=call('/api/dossier/research-package',target)[1]
         assert packet['title']=='Teststad' and 'Private dossier note' not in packet['prompt']
+        assert packet['schema_version']==2 and packet['dossier_revision']==1
+        configured=call('/api/dossier/research-package',{**target,'options':{'mode':'all','target':'imdb','brief':'Controleer de rollen.'}})[1]
+        assert configured['target']=='imdb' and 'Controleer de rollen.' in configured['prompt']
+        assert call('/api/dossier/research-package',{**target,'options':{'mode':'wrong'}})[0]==400
+        assert call('/api/dossier/research-import',{**target,'title':'Teststad','schema_version':2,'dossier_revision':0,'facts':[]})[0]==409
         assert call('/api/dossier/research-package',target,csrf=False)[0]==403
-        external={**target,'title':'Teststad','facts':[{'field':'episodes','value':'10','source_url':'https://example.org/test','evidence':'Teststad heeft tien afleveringen.'}]}
+        external={**target,'title':'Teststad','schema_version':2,'dossier_revision':1,'facts':[{'field':'episodes','value':'8','source_url':'https://example.org/test','evidence':'Teststad heeft acht afleveringen.'}]}
         assert call('/api/dossier/research-import',{**external,'title':'Andere serie'})[0]==400
         assert call('/api/dossier/research-import',{**external,'scope':'season:99'})[0]==400
         assert call('/api/dossier/research-import',{**external,'facts':{}})[0]==400
         assert call('/api/dossier/research-import',external,csrf=False)[0]==403
-        with patch.object(app,'ai_key',return_value=''),patch.object(app.ai_research,'research') as paid,patch.object(app,'read_article_page',return_value='Teststad heeft tien afleveringen.'):
+        with patch.object(app,'ai_key',return_value=''),patch.object(app.ai_research,'research') as paid,patch.object(app,'read_article_page',return_value='Teststad heeft acht afleveringen.'):
             assert call('/api/dossier/research-import',external)[0]==202
             for _ in range(100):
                 if not app.AI_LOCK.locked():break
@@ -134,13 +139,13 @@ with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ,{'ADMIN_U
             assert not app.AI_LOCK.locked()
             paid.assert_not_called()
         fields=call('/api/dashboard',auth=False)[1]['series'][0]['dossiers'][0]['fields']
-        assert fields['episodes']['value']=='10' and fields['episodes']['origin']=='external_ai'
+        assert fields['episodes']['value']=='8' and fields['episodes']['origin']=='external_ai'
         report=call('/api/dossier/research-package',target)[1]['research_status']['report']
         assert report[0]['code']=='confirmed' and report[0]['field']=='episodes'
         mixed={**external,'facts':[{'field':'unknown','value':'bad'},external['facts'][0]]}
         raw='Hier is het resultaat:\n```json\n'+json.dumps(mixed)+'\n```'
         assert call('/api/dossier/research-import',{**target,'raw':json.dumps({**external,'scope':'season:2'})})[0]==400
-        with patch.object(app,'read_article_page',return_value='Teststad heeft tien afleveringen.'):
+        with patch.object(app,'read_article_page',return_value='Teststad heeft acht afleveringen.'):
             assert call('/api/dossier/research-import',{**target,'raw':raw})[0]==202
             for _ in range(100):
                 if not app.AI_LOCK.locked():break
@@ -148,6 +153,16 @@ with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ,{'ADMIN_U
             assert not app.AI_LOCK.locked()
         report=call('/api/dossier/research-package',target)[1]['research_status']['report']
         assert [r['code'] for r in report]==['invalid','confirmed']
+        conflicting={**external,'facts':[{'field':'episodes','value':'10','source_url':'https://example.org/test','evidence':'Teststad heeft tien afleveringen.'}],
+                     'unanswered':[{'field':'runtime','reason':'Geen bron gevonden.'}]}
+        with patch.object(app,'read_article_page',return_value='Teststad heeft tien afleveringen.'):
+            assert call('/api/dossier/research-import',conflicting)[0]==202
+            for _ in range(100):
+                if not app.AI_LOCK.locked():break
+                time.sleep(.02)
+        report=call('/api/dossier/research-package',target)[1]['research_status']['report']
+        assert [r['code'] for r in report]==['existing_conflict','not_found']
+        assert call(detail_path,auth=False)[1]['dossiers'][0]['fields']['episodes']['value']=='8'
         assert 'ai_runs' not in call('/api/dashboard',auth=False)[1]['series'][0]
         assert fields['cast']['value']=='Anna de Vries | Noor'
         with patch.dict(os.environ,{'ADMIN_PASSWORD':''}):
