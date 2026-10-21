@@ -138,6 +138,14 @@ class RadarTests(unittest.TestCase):
             self.assertEqual(revisions,(app.catalog_revision(),app.catalog_revision(admin=True)))
             self.assertEqual(build.call_count,1)
 
+    def test_cache_does_not_expire_without_a_content_change(self):
+        with patch.object(app, '_build_catalog', wraps=app._build_catalog) as build:
+            app.get_catalog(summary=True)
+            with patch.object(app.time,'monotonic',return_value=10**12):
+                app.get_catalog(summary=True)
+                app.get_catalog()
+            self.assertEqual(build.call_count,1)
+
     def test_summary_preserves_card_data_without_bodies_or_evidence(self):
         item={'title':'Nieuwe Nederlandse serie Teststad','url':'https://example.org/test',
               'summary':'Cast: Anna Vos. Vanaf 12 oktober 2026 te zien bij NPO 1.',

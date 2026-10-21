@@ -41,7 +41,6 @@ CATALOG_CACHE = None
 CATALOG_REVISION = 0
 DETAIL_REVISION = 0
 ADMIN_REVISION = 0
-CATALOG_TTL = 60
 PHASES = ['Te beoordelen', 'Aangekondigd', 'In productie', 'Release gepland', 'Gereleased']
 
 def now():
@@ -313,10 +312,9 @@ def get_catalog(summary=False, series_id=None):
     global CATALOG_CACHE
     with CATALOG_LOCK:
         key = str(DB)
-        if not (CATALOG_CACHE and CATALOG_CACHE['key'] == key and CATALOG_CACHE['expires'] > time.monotonic()):
+        if not (CATALOG_CACHE and CATALOG_CACHE['key'] == key):
             value = _build_catalog()
-            CATALOG_CACHE = {'key':key,'expires':time.monotonic()+CATALOG_TTL,
-                             'value':value,'summary':catalog_summary(value)}
+            CATALOG_CACHE = {'key':key,'value':value,'summary':catalog_summary(value)}
         result = CATALOG_CACHE['summary' if summary else 'value']
         if series_id is not None:
             result = {'series':[g for g in result['series'] if g['id']==series_id],
